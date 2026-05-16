@@ -2,6 +2,8 @@ module github.com/gosom/google-maps-scraper
 
 go 1.26.1
 
+replace github.com/gosom/scrapemate => ./third_party/scrapemate
+
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/aws/aws-lambda-go v1.48.0
@@ -325,4 +327,4 @@ tool (
 	golang.org/x/vuln/cmd/govulncheck
 )
 
-//replace github.com/gosom/scrapemate v0.9.6 => ../scrapemate
+// Patched scrapemate (Rod Leakless(false)) lives in ./third_party/scrapemate; see replace above.

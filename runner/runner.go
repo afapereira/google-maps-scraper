@@ -97,7 +97,8 @@ func ParseConfig() *Config {
 	}
 
 	var (
-		proxies string
+		proxies     string
+		proxiesFile string
 	)
 
 	flag.IntVar(&cfg.Concurrency, "c", min(runtime.NumCPU()/2, 1), "sets the concurrency [default: half of CPU cores]")
@@ -118,6 +119,7 @@ func ParseConfig() *Config {
 	flag.BoolVar(&cfg.WebRunner, "web", false, "run web server instead of crawling")
 	flag.StringVar(&cfg.DataFolder, "data-folder", "webdata", "data folder for web runner")
 	flag.StringVar(&proxies, "proxies", "", "comma separated list of proxies to use in the format protocol://user:pass@host:port example: socks5://localhost:9050 or http://user:pass@localhost:9050")
+	flag.StringVar(&proxiesFile, "proxies-file", "", "path to a file with comma-separated proxies (one or more lines); alternative to -proxies for long lists")
 	flag.BoolVar(&cfg.AwsLamdbaRunner, "aws-lambda", false, "run as AWS Lambda function")
 	flag.BoolVar(&cfg.AwsLambdaInvoker, "aws-lambda-invoker", false, "run as AWS Lambda invoker")
 	flag.StringVar(&cfg.FunctionName, "function-name", "", "AWS Lambda function name")
@@ -177,8 +179,34 @@ func ParseConfig() *Config {
 		panic("Dsn must be provided when using ProduceOnly")
 	}
 
-	if proxies != "" {
-		cfg.Proxies = strings.Split(proxies, ",")
+	if proxies != "" && proxiesFile != "" {
+		panic("use either -proxies or -proxies-file, not both")
+	}
+
+	switch {
+	case proxiesFile != "":
+		b, err := os.ReadFile(proxiesFile)
+		if err != nil {
+			panic(fmt.Errorf("read proxies-file: %w", err))
+		}
+
+		raw := strings.TrimSpace(string(b))
+		raw = strings.ReplaceAll(raw, "\r", "")
+		raw = strings.ReplaceAll(raw, "\n", ",")
+
+		for _, p := range strings.Split(raw, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				cfg.Proxies = append(cfg.Proxies, p)
+			}
+		}
+	case proxies != "":
+		for _, p := range strings.Split(proxies, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				cfg.Proxies = append(cfg.Proxies, p)
+			}
+		}
 	}
 
 	if cfg.AwsAccessKey != "" && cfg.AwsSecretKey != "" && cfg.AwsRegion != "" {
