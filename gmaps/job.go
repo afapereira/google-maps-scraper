@@ -207,17 +207,22 @@ func (j *GmapJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPag
 	// check element scroll
 	sel := `div[role='feed']`
 
-	err = page.WaitForSelector(sel, 10*time.Second)
+	feedErr := page.WaitForSelector(sel, 10*time.Second)
 
 	var singlePlace bool
 
-	if err != nil {
+	if feedErr != nil {
 		waitCtx, waitCancel := context.WithTimeout(ctx, time.Second*5)
 		defer waitCancel()
 
 		singlePlace = waitUntilURLContains(waitCtx, page, "/maps/place/")
 
 		waitCancel()
+	}
+
+	if feedErr != nil && !singlePlace {
+		resp.Error = feedErr
+		return resp
 	}
 
 	if singlePlace {
@@ -304,6 +309,7 @@ func scroll(ctx context.Context,
 ) (int, error) {
 	expr := `async () => {
 		const el = document.querySelector("` + scrollSelector + `");
+		if (!el) return null;
 		el.scrollTop = el.scrollHeight;
 
 		return new Promise((resolve, reject) => {
@@ -337,7 +343,10 @@ func scroll(ctx context.Context,
 			return cnt, err
 		}
 
-		// Handle both int and float64 (go-rod returns float64 for numbers)
+		// Handle both int and float64 (go-rod returns float64 for numbers); nil means element not found.
+		if scrollHeight == nil {
+			break
+		}
 		var height int
 		switch v := scrollHeight.(type) {
 		case int:
