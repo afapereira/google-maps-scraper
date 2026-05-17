@@ -343,7 +343,8 @@ func scroll(ctx context.Context,
 			return cnt, err
 		}
 
-		// Handle both int and float64 (go-rod returns float64 for numbers); nil means element not found.
+		// Handle both int and float64 because browser-evaluated numbers may arrive as either type.
+		// nil means the feed element wasn't found — stop scrolling.
 		if scrollHeight == nil {
 			break
 		}
