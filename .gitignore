@@ -10,3 +10,6 @@ gmaps-output
 # Proxy lists (may contain credentials) — keep local, never commit
 restaurants/proxies-comma.txt
 *proxies*.txt
+
+# Build artifacts — binaries don't belong in git
+*.exe
