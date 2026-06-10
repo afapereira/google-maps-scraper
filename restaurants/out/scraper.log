@@ -1,0 +1,26 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ 🌍 Google Maps Scraper                                                       ║
+║ ⭐ If you find this project useful, please star it on GitHub: https://github ║
+║ .com/gosom/google-maps-scraper                                               ║
+║ 💖 Consider sponsoring to support development: https://github.com/sponsors/g ║
+║ osom                                                                         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+2026/05/17 11:59:09 INFO Downloading browsers...
+2026/05/17 11:59:10 INFO Downloaded browsers successfully
+{"level":"info","component":"scrapemate","time":"2026-05-17T11:59:11.38461209Z","message":"starting scrapemate"}
+{"level":"info","component":"scrapemate","jobid":"c14d4801-56e8-47b7-aef7-10b9925efe0b","url":"https://www.google.com/maps/search/restaurants+in+Lisbon+Portugal?hl=en","status":403,"time":"2026-05-17T11:59:11.529102925Z","message":"page loaded after goto"}
+{"level":"info","component":"scrapemate","jobid":"c14d4801-56e8-47b7-aef7-10b9925efe0b","url":"https://www.google.com/maps/search/restaurants+in+Lisbon+Portugal?hl=en","time":"2026-05-17T11:59:11.536896953Z","message":"page url after waitforurl"}
+{"level":"info","component":"scrapemate","jobid":"c14d4801-56e8-47b7-aef7-10b9925efe0b","url":"https://www.google.com/maps/search/restaurants+in+Lisbon+Portugal?hl=en","error":"playwright: timeout: Timeout 10000ms exceeded.","htmlBytes":172,"time":"2026-05-17T11:59:26.543848402Z","message":"feed selector not found — saved page html"}
+{"level":"info","component":"scrapemate","jobid":"c14d4801-56e8-47b7-aef7-10b9925efe0b","url":"https://www.google.com/maps/search/restaurants+in+Lisbon+Portugal?hl=en","status":403,"time":"2026-05-17T11:59:26.662445288Z","message":"page loaded after goto"}
+{"level":"info","component":"scrapemate","jobid":"c14d4801-56e8-47b7-aef7-10b9925efe0b","url":"https://www.google.com/maps/search/restaurants+in+Lisbon+Portugal?hl=en","time":"2026-05-17T11:59:26.666586761Z","message":"page url after waitforurl"}
+{"level":"info","component":"scrapemate","jobid":"c14d4801-56e8-47b7-aef7-10b9925efe0b","url":"https://www.google.com/maps/search/restaurants+in+Lisbon+Portugal?hl=en","error":"playwright: timeout: Timeout 10000ms exceeded.","htmlBytes":172,"time":"2026-05-17T11:59:41.671848167Z","message":"feed selector not found — saved page html"}
+{"level":"info","component":"scrapemate","jobid":"c14d4801-56e8-47b7-aef7-10b9925efe0b","url":"https://www.google.com/maps/search/restaurants+in+Lisbon+Portugal?hl=en","status":403,"time":"2026-05-17T11:59:41.893230614Z","message":"page loaded after goto"}
+{"level":"info","component":"scrapemate","jobid":"c14d4801-56e8-47b7-aef7-10b9925efe0b","url":"https://www.google.com/maps/search/restaurants+in+Lisbon+Portugal?hl=en","time":"2026-05-17T11:59:41.896727125Z","message":"page url after waitforurl"}
+2026/05/17 11:59:53 Received signal, shutting down...
+{"level":"info","component":"scrapemate","time":"2026-05-17T11:59:53.792377831Z","message":"received signal, shutting down"}
+{"level":"info","component":"scrapemate","jobid":"c14d4801-56e8-47b7-aef7-10b9925efe0b","url":"https://www.google.com/maps/search/restaurants+in+Lisbon+Portugal?hl=en","error":"playwright: timeout: Timeout 10000ms exceeded.","htmlBytes":172,"time":"2026-05-17T11:59:53.795521305Z","message":"feed selector not found — saved page html"}
+{"level":"error","component":"scrapemate","error":"context canceled","time":"2026-05-17T11:59:54.196227445Z","message":"error while processing job"}
+{"level":"info","component":"scrapemate","job":"Job{ID: c14d4801-56e8-47b7-aef7-10b9925efe0b, Method: GET, URL: https://www.google.com/maps/search/restaurants+in+Lisbon+Portugal, UrlParams: map[hl:en]}","error":"context canceled","status":"failed","duration":42811.591738,"time":"2026-05-17T11:59:54.196286669Z","message":"job finished"}
+{"level":"error","component":"scrapemate","error":"context canceled","time":"2026-05-17T11:59:54.196303981Z","message":"error while processing job"}
+{"level":"info","component":"scrapemate","time":"2026-05-17T11:59:54.196341566Z","message":"scrapemate exited"}

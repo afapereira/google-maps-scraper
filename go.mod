@@ -4,6 +4,8 @@ go 1.26.2
 
 replace github.com/gosom/scrapemate => ./third_party/scrapemate
 
+replace github.com/playwright-community/playwright-go v0.5700.1 => ./third_party/playwright-go
+
 require (
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/aws/aws-lambda-go v1.48.0
