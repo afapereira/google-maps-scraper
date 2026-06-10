@@ -148,10 +148,13 @@ func (l *lambdaAwsRunner) getApp(_ context.Context, input lInput, out io.Writer)
 		scrapemateapp.DisableImages(),
 	))
 
-	// NOTE: MaxPagesPerBrowser / BrowserPoolSize (upstream PR #282) require
-	// scrapemate >= v1.2.0. The locally patched scrapemate in
-	// ./third_party/scrapemate predates those APIs, so these are no-ops until
-	// it is upgraded. See runner.AppendBrowserCapacityOptions for details.
+	if input.MaxPagesPerBrowser > 1 {
+		opts = append(opts, scrapemateapp.WithMaxPagesPerBrowser(input.MaxPagesPerBrowser))
+	}
+
+	if input.BrowserPoolSize > 0 {
+		opts = append(opts, scrapemateapp.WithBrowserPoolSize(input.BrowserPoolSize))
+	}
 
 	if !input.DisablePageReuse {
 		opts = append(opts, scrapemateapp.WithPageReuseLimit(2))

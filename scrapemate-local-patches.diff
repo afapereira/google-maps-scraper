@@ -1,0 +1,97 @@
+diff --git a/adapters/fetchers/jshttp/jshttp.go b/adapters/fetchers/jshttp/jshttp.go
+index cb1c2a9..d266105 100644
+--- a/adapters/fetchers/jshttp/jshttp.go
++++ b/adapters/fetchers/jshttp/jshttp.go
+@@ -3,6 +3,7 @@ package jshttp
+ import (
+ 	"context"
+ 	"errors"
++	"runtime"
+ 
+ 	"github.com/playwright-community/playwright-go"
+ 
+@@ -255,32 +256,37 @@ func (o *browser) Close() {
+ }
+ 
+ func newBrowser(pw *playwright.Playwright, headless, disableImages bool, proxyPool *ProxyPool, ua string) (*browser, error) {
++	launchArgs := []string{
++		`--start-maximized`,
++		`--no-default-browser-check`,
++		`--disable-dev-shm-usage`,
++		`--no-sandbox`,
++		`--disable-setuid-sandbox`,
++		`--disable-gpu`,
++		`--mute-audio`,
++		`--disable-extensions`,
++		`--disable-breakpad`,
++		`--disable-features=TranslateUI,BlinkGenPropertyTrees`,
++		`--disable-ipc-flooding-protection`,
++		`--enable-features=NetworkService,NetworkServiceInProcess`,
++		"--enable-features=NetworkService",
++		`--disable-default-apps`,
++		`--disable-notifications`,
++		`--disable-webgl`,
++		`--disable-blink-features=AutomationControlled`,
++		"--ignore-certificate-errors",
++		"--ignore-certificate-errors-spki-list",
++		"--disable-web-security",
++	}
++	// --no-zygote/--single-process crash Chromium on Windows ("closed network
++	// connection" over CDP); only safe on Linux/containerized environments.
++	if runtime.GOOS != "windows" {
++		launchArgs = append(launchArgs, `--no-zygote`, `--single-process`)
++	}
++
+ 	opts := playwright.BrowserTypeLaunchOptions{
+ 		Headless: playwright.Bool(headless),
+-		Args: []string{
+-			`--start-maximized`,
+-			`--no-default-browser-check`,
+-			`--disable-dev-shm-usage`,
+-			`--no-sandbox`,
+-			`--disable-setuid-sandbox`,
+-			`--no-zygote`,
+-			`--disable-gpu`,
+-			`--mute-audio`,
+-			`--disable-extensions`,
+-			`--single-process`,
+-			`--disable-breakpad`,
+-			`--disable-features=TranslateUI,BlinkGenPropertyTrees`,
+-			`--disable-ipc-flooding-protection`,
+-			`--enable-features=NetworkService,NetworkServiceInProcess`,
+-			"--enable-features=NetworkService",
+-			`--disable-default-apps`,
+-			`--disable-notifications`,
+-			`--disable-webgl`,
+-			`--disable-blink-features=AutomationControlled`,
+-			"--ignore-certificate-errors",
+-			"--ignore-certificate-errors-spki-list",
+-			"--disable-web-security",
+-		},
++		Args:     launchArgs,
+ 	}
+ 	if disableImages {
+ 		opts.Args = append(opts.Args, `--blink-settings=imagesEnabled=false`)
+diff --git a/scrapemate.go b/scrapemate.go
+index 2756753..1aeb8da 100644
+--- a/scrapemate.go
++++ b/scrapemate.go
+@@ -266,8 +266,16 @@ func (s *ScrapeMate) Start() error {
+ 					"speed", fmt.Sprintf("%.2f jobs/min", perMinute),
+ 				)
+ 
+-				if s.exitOnInactivity && time.Now().UTC().Sub(lastActivityAt) > s.exitOnInactivityDuration {
+-					err := fmt.Errorf("%w: %s", ErrInactivityTimeout, lastActivityAt.Format(time.RFC3339))
++				// Before any job finishes, lastActivityAt is zero; Sub would be ~"ages
++				// ago" and would falsely trip inactivity. Use scrape start time until
++				// the first completion.
++				activityRef := lastActivityAt
++				if activityRef.IsZero() {
++					activityRef = startTime
++				}
++
++				if s.exitOnInactivity && time.Now().UTC().Sub(activityRef) > s.exitOnInactivityDuration {
++					err := fmt.Errorf("%w: %s", ErrInactivityTimeout, activityRef.Format(time.RFC3339))
+ 
+ 					s.log.Info("exiting because of inactivity", "error", err)
+ 					s.cancelFn(err)

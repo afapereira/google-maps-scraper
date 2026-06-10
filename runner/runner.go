@@ -368,15 +368,16 @@ func banner(messages []string, width int) string {
 
 // AppendBrowserCapacityOptions wires upstream's browser page-concurrency flags
 // (-max-pages-per-browser / -browser-pool-size, added in upstream PR #282).
-//
-// NOTE: these options require scrapemate >= v1.2.0
-// (scrapemateapp.WithMaxPagesPerBrowser / WithBrowserPoolSize). This build uses
-// the locally patched scrapemate in ./third_party/scrapemate (Rod Leakless and
-// proxy patches), which predates those APIs, so the options are currently a
-// no-op. To enable: upgrade the vendored scrapemate to v1.2.0 and re-apply the
-// local patches, then restore the appends below.
+// Requires scrapemate >= v1.2.0, which the vendored ./third_party/scrapemate now
+// tracks (Playwright-only; Rod removed upstream).
 func AppendBrowserCapacityOptions(opts []func(*scrapemateapp.Config) error, cfg *Config) []func(*scrapemateapp.Config) error {
-	_ = cfg // browser-capacity options unavailable until scrapemate is upgraded; see note above.
+	if cfg.MaxPagesPerBrowser > 1 {
+		opts = append(opts, scrapemateapp.WithMaxPagesPerBrowser(cfg.MaxPagesPerBrowser))
+	}
+
+	if cfg.BrowserPoolSize > 0 {
+		opts = append(opts, scrapemateapp.WithBrowserPoolSize(cfg.BrowserPoolSize))
+	}
 
 	return opts
 }
