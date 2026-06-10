@@ -90,6 +90,9 @@ func (l *lambdaAwsRunner) handler(ctx context.Context, input lInput) error {
 		nil,
 		exitMonitor,
 		input.ExtraReviews,
+		true, // restaurants-only: default-on for the Lambda runner.
+		"newest",
+		200,
 	)
 	if err != nil {
 		return err

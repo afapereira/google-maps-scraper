@@ -28,6 +28,9 @@ type GmapJob struct {
 	Deduper                 deduper.Deduper
 	ExitMonitor             exiter.Exiter
 	ExtractExtraReviews     bool
+	RestaurantsOnly         bool
+	ReviewSort              string
+	MaxReviews              int
 	WriterManagedCompletion bool
 }
 
@@ -97,6 +100,24 @@ func WithExtraReviews() GmapJobOptions {
 	}
 }
 
+func WithRestaurantsOnly(v bool) GmapJobOptions {
+	return func(j *GmapJob) {
+		j.RestaurantsOnly = v
+	}
+}
+
+func WithReviewSort(s string) GmapJobOptions {
+	return func(j *GmapJob) {
+		j.ReviewSort = s
+	}
+}
+
+func WithMaxReviews(n int) GmapJobOptions {
+	return func(j *GmapJob) {
+		j.MaxReviews = n
+	}
+}
+
 func WithWriterManagedCompletion() GmapJobOptions {
 	return func(j *GmapJob) {
 		j.WriterManagedCompletion = true
@@ -148,6 +169,10 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 			jopts = append(jopts, WithPlaceJobWriterManagedCompletion())
 		}
 
+		jopts = append(jopts, WithPlaceJobRestaurantsOnly(j.RestaurantsOnly))
+		jopts = append(jopts, WithPlaceJobReviewSort(j.ReviewSort))
+		jopts = append(jopts, WithPlaceJobMaxReviews(j.MaxReviews))
+
 		placeJob := NewPlaceJob(j.ID, j.LangCode, resp.URL, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
 
 		next = append(next, placeJob)
@@ -162,6 +187,10 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 				if j.WriterManagedCompletion {
 					jopts = append(jopts, WithPlaceJobWriterManagedCompletion())
 				}
+
+				jopts = append(jopts, WithPlaceJobRestaurantsOnly(j.RestaurantsOnly))
+				jopts = append(jopts, WithPlaceJobReviewSort(j.ReviewSort))
+				jopts = append(jopts, WithPlaceJobMaxReviews(j.MaxReviews))
 
 				nextJob := NewPlaceJob(j.ID, j.LangCode, href, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
 

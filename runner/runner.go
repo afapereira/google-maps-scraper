@@ -80,6 +80,9 @@ type Config struct {
 	Addr                     string
 	DisablePageReuse         bool
 	ExtraReviews             bool
+	RestaurantsOnly          bool
+	ReviewSort               string
+	MaxReviews               int
 	LeadsDBAPIKey            string
 
 	// Grid scraping — divide a bounding box into cells to bypass the ~120
@@ -135,7 +138,10 @@ func ParseConfig() *Config {
 	flag.Float64Var(&cfg.Radius, "radius", 10000, "search radius in meters. Default is 10000 meters")
 	flag.StringVar(&cfg.Addr, "addr", ":8080", "address to listen on for web server")
 	flag.BoolVar(&cfg.DisablePageReuse, "disable-page-reuse", false, "disable page reuse in playwright")
-	flag.BoolVar(&cfg.ExtraReviews, "extra-reviews", false, "enable extra reviews collection")
+	flag.BoolVar(&cfg.ExtraReviews, "extra-reviews", true, "enable extra reviews collection [default: true]")
+	flag.BoolVar(&cfg.RestaurantsOnly, "restaurants-only", true, "drop non-restaurant places from results [default: true]")
+	flag.StringVar(&cfg.ReviewSort, "review-sort", "newest", "extra-reviews sort: newest|relevant|highest|lowest [default: newest]")
+	flag.IntVar(&cfg.MaxReviews, "max-reviews", 200, "max reviews to scrape per place via DOM scroll (non-relevant sorts) [default: 200]")
 	flag.StringVar(&cfg.LeadsDBAPIKey, "leadsdb-api-key", "", "LeadsDB API key for exporting results to LeadsDB")
 	flag.StringVar(&cfg.GridBBox, "grid-bbox", "", "bounding box for grid scraping: 'minLat,minLon,maxLat,maxLon' (e.g. '40.30,-3.80,40.50,-3.60')")
 	flag.Float64Var(&cfg.GridCellKm, "grid-cell", 1.0, "grid cell size in km [default: 1.0]. Use with -grid-bbox")

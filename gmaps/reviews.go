@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,108 @@ type fetchReviewsParams struct {
 	page        scrapemate.BrowserPage
 	mapURL      string
 	reviewCount int
+	sortCode    int // Google RPC sort code; see reviewSortCode().
+	maxReviews  int // Hard cap on DOM-scrolled reviews (0 = use default 200).
+}
+
+// reviewSortCode maps a user-facing sort name to the Google RPC `1e<N>` value.
+// Falls back to "newest" if the name is empty or unrecognised.
+func reviewSortCode(name string) int {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "relevant", "most_relevant", "most-relevant":
+		return 1
+	case "highest", "highest_rating", "highest-rating":
+		return 3
+	case "lowest", "lowest_rating", "lowest-rating":
+		return 4
+	default: // "", "newest", "most_recent", anything else
+		return 2
+	}
+}
+
+// applyReviewSort drives the place panel's "Sort" dropdown to the requested
+// option. Opens the Reviews tab first if it isn't already active. Returns true
+// if a selection was made. Both the RPC review fetch and the DOM fallback
+// inherit the page's chosen ordering.
+func applyReviewSort(page scrapemate.BrowserPage, name string) bool {
+	if page == nil {
+		return false
+	}
+
+	// Make sure the Reviews tab is active — the sort button only renders there.
+	_, _ = page.Eval(`() => {
+		try {
+			const tabs = document.querySelectorAll('button[role="tab"], button[jsaction]');
+			for (const t of tabs) {
+				const label = (t.getAttribute('aria-label') || t.textContent || '').trim().toLowerCase();
+				if (/^reviews?(\s|$|\()/.test(label) || label.startsWith('reviews for')) {
+					t.click();
+					return true;
+				}
+			}
+			return false;
+		} catch (e) { return false; }
+	}`)
+	time.Sleep(500 * time.Millisecond)
+
+	// Map sort name -> the menu-item label Google renders in the dropdown.
+	target := "newest"
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "relevant", "most_relevant", "most-relevant", "":
+		target = "most relevant"
+	case "highest", "highest_rating", "highest-rating":
+		target = "highest rating"
+	case "lowest", "lowest_rating", "lowest-rating":
+		target = "lowest rating"
+	case "newest", "most_recent", "recent":
+		target = "newest"
+	default:
+		target = "newest"
+	}
+
+	// Open the sort dropdown.
+	opened, _ := page.Eval(`() => {
+		try {
+			const candidates = document.querySelectorAll('button, [role="button"]');
+			for (const b of candidates) {
+				const t = (b.getAttribute('aria-label') || b.textContent || '').trim().toLowerCase();
+				if (t === 'sort' || t.startsWith('sort ') ||
+				    t === 'most relevant' || t === 'newest' ||
+				    t === 'highest rating' || t === 'lowest rating') {
+					b.click();
+					return true;
+				}
+			}
+			return false;
+		} catch (e) { return false; }
+	}`)
+	if v, _ := opened.(bool); !v {
+		return false
+	}
+
+	// Wait a beat for the menu to render.
+	time.Sleep(400 * time.Millisecond)
+
+	// Click the target option in the menu.
+	picked, _ := page.Eval(fmt.Sprintf(`() => {
+		try {
+			const target = %q;
+			const items = document.querySelectorAll('[role="menuitemradio"], [role="menuitem"], li[role], div[role]');
+			for (const it of items) {
+				const t = (it.getAttribute('aria-label') || it.textContent || '').trim().toLowerCase();
+				if (t === target) { it.click(); return true; }
+			}
+			return false;
+		} catch (e) { return false; }
+	}`, target))
+	if v, _ := picked.(bool); !v {
+		return false
+	}
+
+	// Let the sorted list re-render before downstream extraction reads it.
+	time.Sleep(800 * time.Millisecond)
+
+	return true
 }
 
 type FetchReviewsResponse struct {
@@ -241,7 +344,10 @@ func (f *fetcher) generateURL(mapURL, pageToken string, pageSize int, requestID 
 	encodedPlaceID := url.QueryEscape(rawPlaceID)
 	encodedPageToken := url.QueryEscape(pageToken)
 
-	// Updated pb components based on current Google Maps API format (Dec 2025)
+	// The pb sort slot is brittle to modify directly — Google rejects most
+	// values with HTTP 400. Instead, the page-level "Sort: Newest" click in
+	// applyReviewSort() puts the session in newest-mode, and the RPC call
+	// then uses that session ordering. Keep the original pb intact.
 	pbComponents := []string{
 		fmt.Sprintf("!1m6!1s%s", encodedPlaceID),
 		"!6m4!4m1!1e1!4m1!1e3",
@@ -355,10 +461,15 @@ func ConvertDOMReviewsToReviews(domReviews []DOMReview) []Review {
 	return reviews
 }
 
-// extractReviewsFromPage extracts reviews directly from the page DOM
-// This is a fallback when the RPC API fails
-func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage) ([]DOMReview, error) {
-	log.Printf("Attempting DOM-based review extraction")
+// extractReviewsFromPage extracts reviews directly from the page DOM.
+// `maxReviews` caps the result (0 → default 200). This is the primary path
+// when a non-default sort is requested, and the fallback when the RPC fails.
+func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, maxReviews int) ([]DOMReview, error) {
+	if maxReviews <= 0 {
+		maxReviews = 200
+	}
+
+	log.Printf("Attempting DOM-based review extraction (cap=%d)", maxReviews)
 
 	// First, try to click the reviews section to open the reviews panel
 	clickedReviews, _ := page.Eval(`() => {
@@ -415,7 +526,9 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage) ([
 
 	var reviews []DOMReview
 
-	maxScrollAttempts := 30
+	// Scroll budget: enough rounds to plausibly reach the maxReviews cap
+	// (Google loads ~10 reviews per visible scroll on most layouts).
+	maxScrollAttempts := maxReviews/5 + 30
 	lastCount := 0
 	stuckCount := 0
 
@@ -678,9 +791,17 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage) ([
 		}
 
 		currentCount := len(reviews)
+
+		// Hit the user-requested cap — stop scrolling early.
+		if currentCount >= maxReviews {
+			log.Printf("Reached review cap (%d), stopping scroll", maxReviews)
+			break
+		}
+
 		if currentCount == lastCount {
 			stuckCount++
-			if stuckCount > 5 {
+			// Bumped from 5 → 10 so slow loads / brief stalls don't bail early.
+			if stuckCount > 10 {
 				log.Printf("Review count stuck at %d, stopping scroll", currentCount)
 				break
 			}
@@ -689,36 +810,56 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage) ([
 			lastCount = currentCount
 		}
 
-		// Scroll to load more reviews
+		// Scroll to load more reviews. Class names rotate, so we first try
+		// a known-good review element and walk up to its scrollable ancestor —
+		// this works even when Google ships new class names.
 		_, _ = page.Eval(`() => {
 			try {
-				// Try multiple scroll containers
-				const selectors = [
+				const findScrollable = (el) => {
+					for (let n = el; n && n !== document.body; n = n.parentElement) {
+						const s = getComputedStyle(n);
+						if ((s.overflowY === 'auto' || s.overflowY === 'scroll') &&
+						    n.scrollHeight > n.clientHeight + 50) {
+							return n;
+						}
+					}
+					return null;
+				};
+
+				// Anchor: any visible review tile.
+				const anchorSelectors = ['div[data-review-id]', '.jftiEf', '.WMbnJf', '.bwb7ce'];
+				for (const sel of anchorSelectors) {
+					const anchor = document.querySelector(sel);
+					if (!anchor) continue;
+					const sc = findScrollable(anchor);
+					if (sc) {
+						sc.scrollBy(0, sc.clientHeight * 0.9);
+						return 'anchor-scroll';
+					}
+				}
+
+				// Fallback: legacy class-name selectors.
+				const legacy = [
 					'.m6QErb.DxyBCb.kA9KIf.dS8AEf',
 					'.m6QErb.DxyBCb.kA9KIf',
 					'.DxyBCb.kA9KIf',
 					'.m6QErb',
-					'.section-scrollbox',
 					'div[role="feed"]'
 				];
-
-				for (const selector of selectors) {
-					const el = document.querySelector(selector);
-					if (el) {
+				for (const sel of legacy) {
+					const el = document.querySelector(sel);
+					if (el && el.scrollHeight > el.clientHeight) {
 						el.scrollBy(0, 800);
-						return true;
+						return 'legacy-scroll';
 					}
 				}
 
 				window.scrollBy(0, 800);
-				return true;
-			} catch (e) {
-				window.scrollBy(0, 800);
-				return false;
-			}
+				return 'window-scroll';
+			} catch (e) { return 'err'; }
 		}`)
 
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(700 * time.Millisecond)
 	}
 
 	log.Printf("DOM extraction completed: %d reviews found", len(reviews))
@@ -726,8 +867,230 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage) ([
 	return reviews, nil
 }
 
-// FetchReviewsWithFallback attempts RPC-based extraction first, then falls back to DOM
+// ExtractMentionedInReviews scrapes the "mentioned in reviews" keyword chips
+// (dish names + their review counts) that Google Maps surfaces above the
+// reviews list for a place. Non-food topics (service, wait time, parking, etc.)
+// are filtered out. Results come back sorted by count, descending.
+//
+// Side effect: opens the Reviews tab on the place panel, since the keyword
+// chips are only rendered once that tab is active.
+func ExtractMentionedInReviews(page scrapemate.BrowserPage) []MentionedDish {
+	if page == nil {
+		return nil
+	}
+
+	// Click the Reviews tab so the chips render.
+	_, _ = page.Eval(`() => {
+		try {
+			const tabs = document.querySelectorAll('button[role="tab"], button[jsaction]');
+			for (const t of tabs) {
+				const label = (t.getAttribute('aria-label') || t.textContent || '').trim().toLowerCase();
+				if (/^reviews?(\s|$|\()/.test(label) || label.startsWith('reviews for')) {
+					t.click();
+					return true;
+				}
+			}
+			return false;
+		} catch (e) { return false; }
+	}`)
+
+	const chipExtractor = `() => {
+		try {
+			const out = [];
+			const seen = new Set();
+			// Chip aria-labels read: "<keyword>, mentioned in <N> reviews".
+			const chipRe = /^(.+?),\s*mentioned in\s+([\d,\.]+)\s+reviews?$/i;
+			const nonFood = new Set([
+				'wait time','waiting time','wait','waiting','queue','line','reservation','reservations','booking',
+				'service','staff','waiter','waiters','waitress','server','servers','customer service','manager',
+				'price','prices','pricing','value','bill','check','cash','card','credit card','tip','tipping',
+				'atmosphere','ambience','ambiance','vibe','vibes','decor','decoration','music','noise','lighting','crowd',
+				'view','views','location','spot','place','area','neighborhood','seating','tables','table','bathroom','restroom','toilet','toilets',
+				'parking','valet','wifi','wi-fi','reservation policy','dress code',
+				'breakfast','brunch','lunch','dinner','meal','meals','menu','portion','portions','portion size','serving','servings',
+				'takeout','take out','take-out','delivery','to go','takeaway','outdoor seating','patio','terrace',
+				'happy hour','date night','birthday','anniversary','family','kids','children','tourists','locals',
+				'experience','quality','recommendation','recommend','visit','time','first time','second time'
+			]);
+
+			// Scope to the reviews scroll container if we can find it — saves
+			// scanning hundreds of unrelated buttons. Fall back to full DOM
+			// if no container matches (chip layout may have shifted).
+			let root = document.querySelector('div[role="main"] div[role="region"]') ||
+				document.querySelector('div[role="main"]') ||
+				document.querySelector('div[role="feed"]') ||
+				document;
+
+			const nodes = root.querySelectorAll('button, span[role="button"]');
+			for (const n of nodes) {
+				const raw = (n.getAttribute('aria-label') || n.textContent || '').trim();
+				if (!raw) continue;
+				const m = raw.match(chipRe);
+				if (!m) continue;
+				const label = m[1].trim();
+				if (!label || label.length > 40) continue;
+				const key = label.toLowerCase();
+				if (nonFood.has(key)) continue;
+				if (seen.has(key)) continue;
+				seen.add(key);
+				const count = parseInt(m[2].replace(/[,.]/g, ''), 10) || 0;
+				out.push({ name: key, count: count });
+			}
+			return out;
+		} catch (e) { return []; }
+	}`
+
+	// Adaptive polling: try a fast first scan, then back off if empty. Chips
+	// usually render in <600 ms on a warm connection; this avoids the 1.5 s
+	// fixed grace period and shaves ~1 s off the common path.
+	//
+	// Backoff sequence (ms): 250, 400, 600, 800, 1000, then 1000 until deadline.
+	// Bail after 2 consecutive empties (small places have no chips at all).
+	// Stop once the chip list is stable across two scans (Google sometimes
+	// streams chips in over a couple hundred ms).
+	deadline := time.Now().Add(10 * time.Second)
+	delays := []time.Duration{
+		250 * time.Millisecond,
+		400 * time.Millisecond,
+		600 * time.Millisecond,
+		800 * time.Millisecond,
+		1000 * time.Millisecond,
+	}
+
+	var (
+		lastCount   int
+		stableHits  int
+		emptyHits   int
+		viewedMore  bool
+		dishes      []MentionedDish
+	)
+
+	for attempt := 0; time.Now().Before(deadline); attempt++ {
+		// Initial wait before the first scan — even a fast click needs ~200 ms
+		// for the tab to swap.
+		if attempt < len(delays) {
+			time.Sleep(delays[attempt])
+		} else {
+			time.Sleep(delays[len(delays)-1])
+		}
+
+		// Expand "View N more" exactly once.
+		if !viewedMore {
+			res, _ := page.Eval(`() => {
+				const btns = document.querySelectorAll('button');
+				for (const b of btns) {
+					const t = (b.getAttribute('aria-label') || b.textContent || '').trim();
+					if (/^view\s+\d+\s+more$/i.test(t)) { b.click(); return true; }
+				}
+				return false;
+			}`)
+			if v, ok := res.(bool); ok && v {
+				viewedMore = true
+			}
+		}
+
+		raw, err := page.Eval(chipExtractor)
+		if err != nil {
+			continue
+		}
+
+		arr, _ := raw.([]any)
+		if len(arr) > 0 {
+			cur := parseDishes(arr)
+			if len(cur) == lastCount {
+				stableHits++
+			} else {
+				stableHits = 0
+				lastCount = len(cur)
+			}
+
+			dishes = cur
+			emptyHits = 0
+
+			if stableHits >= 1 {
+				break
+			}
+		} else {
+			emptyHits++
+			if emptyHits >= 2 {
+				break
+			}
+		}
+	}
+
+	// Sort by count desc, then name asc for stable output.
+	for i := 0; i < len(dishes); i++ {
+		for j := i + 1; j < len(dishes); j++ {
+			if dishes[j].Count > dishes[i].Count ||
+				(dishes[j].Count == dishes[i].Count && dishes[j].Name < dishes[i].Name) {
+				dishes[i], dishes[j] = dishes[j], dishes[i]
+			}
+		}
+	}
+
+	return dishes
+}
+
+func parseDishes(arr []any) []MentionedDish {
+	out := make([]MentionedDish, 0, len(arr))
+	seen := make(map[string]struct{}, len(arr))
+	for _, v := range arr {
+		m, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := m["name"].(string)
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		var count int
+		switch c := m["count"].(type) {
+		case float64:
+			count = int(c)
+		case int:
+			count = c
+		case int64:
+			count = int(c)
+		case json.Number:
+			if n, err := c.Int64(); err == nil {
+				count = int(n)
+			}
+		case string:
+			if n, err := strconv.Atoi(strings.TrimSpace(c)); err == nil {
+				count = n
+			}
+		}
+		out = append(out, MentionedDish{Name: name, Count: count})
+	}
+	return out
+}
+
+// FetchReviewsWithFallback attempts RPC-based extraction first, then falls back to DOM.
+// When a non-default sort is requested, the RPC path is skipped entirely — the
+// RPC endpoint hardcodes "most relevant" regardless of page state, so honoring
+// the user's sort requires the DOM scroll path.
 func FetchReviewsWithFallback(ctx context.Context, params fetchReviewsParams) (FetchReviewsResponse, []DOMReview, error) {
+	// sortCode 0 (uninitialised) or 1 (most_relevant) = use RPC.
+	// Anything else: DOM only, because RPC ignores sort.
+	if params.sortCode != 0 && params.sortCode != 1 {
+		if params.page != nil {
+			domReviews, domErr := extractReviewsFromPage(ctx, params.page, params.maxReviews)
+			if domErr == nil && len(domReviews) > 0 {
+				log.Printf("DOM extraction (sort=%d) successful: %d reviews", params.sortCode, len(domReviews))
+				return FetchReviewsResponse{}, domReviews, nil
+			}
+			if domErr != nil {
+				log.Printf("DOM extraction (sort=%d) failed: %v", params.sortCode, domErr)
+			}
+		}
+		// If DOM unavailable/failed, fall through to RPC as a last resort.
+	}
+
 	fetcher := newReviewFetcher(params)
 
 	// Try RPC-based extraction first
@@ -751,7 +1114,7 @@ func FetchReviewsWithFallback(ctx context.Context, params fetchReviewsParams) (F
 
 	// Fallback to DOM-based extraction
 	if params.page != nil {
-		domReviews, domErr := extractReviewsFromPage(ctx, params.page)
+		domReviews, domErr := extractReviewsFromPage(ctx, params.page, params.maxReviews)
 		if domErr == nil && len(domReviews) > 0 {
 			log.Printf("DOM extraction successful: %d reviews", len(domReviews))
 			return FetchReviewsResponse{}, domReviews, nil

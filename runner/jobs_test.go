@@ -50,6 +50,9 @@ func TestCreateSeedJobsRejectsEmptyQueryBeforeCustomID(t *testing.T) {
 		nil,
 		nil,
 		false,
+		false,
+		"newest",
+		200,
 	)
 	if err == nil || !strings.Contains(err.Error(), "empty query text") {
 		t.Fatalf("expected empty query text error, got %v", err)

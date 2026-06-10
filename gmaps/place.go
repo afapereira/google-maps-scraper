@@ -3,6 +3,7 @@ package gmaps
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -21,6 +22,9 @@ type PlaceJob struct {
 	ExtractEmail            bool
 	ExitMonitor             exiter.Exiter
 	ExtractExtraReviews     bool
+	RestaurantsOnly         bool
+	ReviewSort              string
+	MaxReviews              int
 	WriterManagedCompletion bool
 }
 
@@ -65,6 +69,24 @@ func WithPlaceJobWriterManagedCompletion() PlaceJobOptions {
 	}
 }
 
+func WithPlaceJobRestaurantsOnly(v bool) PlaceJobOptions {
+	return func(j *PlaceJob) {
+		j.RestaurantsOnly = v
+	}
+}
+
+func WithPlaceJobReviewSort(s string) PlaceJobOptions {
+	return func(j *PlaceJob) {
+		j.ReviewSort = s
+	}
+}
+
+func WithPlaceJobMaxReviews(n int) PlaceJobOptions {
+	return func(j *PlaceJob) {
+		j.MaxReviews = n
+	}
+}
+
 func (j *PlaceJob) ProcessOnFetchError() bool {
 	return true
 }
@@ -93,13 +115,23 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 		return nil, nil, fmt.Errorf("could not convert to []byte")
 	}
 
-	entry, err := EntryFromJSON(raw)
-	if err != nil {
-		if j.ExitMonitor != nil {
-			j.ExitMonitor.IncrPlacesCompleted(1)
-		}
+	// Re-use the entry parsed in BrowserActions if present; only fall back to
+	// re-parsing if the cache key is missing (e.g. resp.Meta was overwritten).
+	var (
+		entry Entry
+		err   error
+	)
+	if cached, ok := resp.Meta["entry"].(Entry); ok {
+		entry = cached
+	} else {
+		entry, err = EntryFromJSON(raw)
+		if err != nil {
+			if j.ExitMonitor != nil {
+				j.ExitMonitor.IncrPlacesCompleted(1)
+			}
 
-		return nil, nil, err
+			return nil, nil, err
+		}
 	}
 
 	entry.ID = j.ParentID
@@ -108,10 +140,27 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 		entry.Link = j.GetURL()
 	}
 
+	// Restaurant-only mode: drop anything that isn't a food-serving venue.
+	// The entry is fully parsed but never reaches the writer.
+	if j.RestaurantsOnly && !entry.IsRestaurantLike() {
+		log.Printf("[restaurants-only] dropped: %s (%s)", entry.Title, entry.Category)
+		if j.ExitMonitor != nil && !j.WriterManagedCompletion {
+			j.ExitMonitor.IncrPlacesCompleted(1)
+		}
+
+		j.UsageInResultststs = false
+
+		return nil, nil, nil
+	}
+
 	// Handle RPC-based reviews
 	allReviewsRaw, ok := resp.Meta["reviews_raw"].(FetchReviewsResponse)
 	if ok && len(allReviewsRaw.pages) > 0 {
 		entry.AddExtraReviews(allReviewsRaw.pages)
+	}
+
+	if dishes, ok := resp.Meta["mentioned_in_reviews"].([]MentionedDish); ok && len(dishes) > 0 {
+		entry.MentionedInReviews = dishes
 	}
 
 	// Handle DOM-based reviews (fallback)
@@ -177,13 +226,38 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 
 	resp.Meta["json"] = raw
 
+	// Parse the place entry ONCE here — EntryFromJSON walks deeply nested
+	// arrays and is the heaviest call in the hot path. Process re-uses this
+	// from resp.Meta["entry"] instead of parsing again.
+	peek, perr := EntryFromJSON(raw)
+	if perr == nil {
+		resp.Meta["entry"] = peek
+	}
+
+	// Only run dish-chip extraction for restaurant-like places with reviews —
+	// the click+poll costs up to ~2 s and produces nothing on other categories.
+	if perr == nil && peek.IsRestaurantLike() && peek.ReviewCount > 0 {
+		if dishes := ExtractMentionedInReviews(page); len(dishes) > 0 {
+			resp.Meta["mentioned_in_reviews"] = dishes
+		}
+	}
+
 	if j.ExtractExtraReviews {
-		reviewCount := j.getReviewCount(raw)
+		reviewCount := 0
+		if perr == nil {
+			reviewCount = peek.ReviewCount
+		}
 		if reviewCount > 0 { // download reviews for any place that has them
+			// Drive the page's Sort dropdown so both RPC and DOM-fallback
+			// paths inherit the requested ordering.
+			applyReviewSort(page, j.ReviewSort)
+
 			params := fetchReviewsParams{
 				page:        page,
 				mapURL:      page.URL(),
 				reviewCount: reviewCount,
+				sortCode:    reviewSortCode(j.ReviewSort),
+				maxReviews:  j.MaxReviews,
 			}
 
 			// Use the new fallback mechanism that tries RPC first, then DOM

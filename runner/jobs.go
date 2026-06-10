@@ -30,6 +30,9 @@ func CreateSeedJobs(
 	dedup deduper.Deduper,
 	exitMonitor exiter.Exiter,
 	extraReviews bool,
+	restaurantsOnly bool,
+	reviewSort string,
+	maxReviews int,
 ) (jobs []scrapemate.IJob, err error) {
 	var lat, lon float64
 
@@ -101,6 +104,10 @@ func CreateSeedJobs(
 			if extraReviews {
 				opts = append(opts, gmaps.WithExtraReviews())
 			}
+
+			opts = append(opts, gmaps.WithRestaurantsOnly(restaurantsOnly))
+			opts = append(opts, gmaps.WithReviewSort(reviewSort))
+			opts = append(opts, gmaps.WithMaxReviews(maxReviews))
 
 			job = gmaps.NewGmapJob(id, langCode, query, maxDepth, email, geoCoordinates, zoom, opts...)
 		} else {

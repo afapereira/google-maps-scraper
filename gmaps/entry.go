@@ -6,6 +6,7 @@ import (
 	"iter"
 	"math"
 	"net/url"
+	"regexp"
 	"runtime/debug"
 	"slices"
 	"strconv"
@@ -46,6 +47,11 @@ type About struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
 	Options []Option `json:"options"`
+}
+
+type MentionedDish struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
 }
 
 type Review struct {
@@ -94,6 +100,7 @@ type Entry struct {
 	About               []About                `json:"about"`
 	UserReviews         []Review               `json:"user_reviews"`
 	UserReviewsExtended []Review               `json:"user_reviews_extended"`
+	MentionedInReviews  []MentionedDish        `json:"mentioned_in_reviews"`
 	Emails              []string               `json:"emails"`
 }
 
@@ -122,6 +129,71 @@ func (e *Entry) isWithinRadius(lat, lon, radius float64) bool {
 	distance := e.haversineDistance(lat, lon)
 
 	return distance <= radius
+}
+
+// IsRestaurantLike returns true if any of the place's categories suggests a
+// food-serving venue. Used to skip dish-chip extraction on irrelevant places.
+//
+// Matching is word-boundary based, so "Health food store" and "Barber shop"
+// don't false-positive on "food"/"bar".
+func (e *Entry) IsRestaurantLike() bool {
+	// Negative list — categories that contain food-related words but aren't
+	// places that serve prepared meals.
+	skip := []string{
+		"shop", "store", "market", "supermarket", "grocery", "supply",
+		"wholesale", "manufacturer", "producer", "factory", "school",
+		"academy", "equipment", "delivery service",
+	}
+
+	for _, c := range collectCategories(e) {
+		lc := strings.ToLower(c)
+
+		blocked := false
+		for _, s := range skip {
+			if strings.Contains(lc, s) {
+				blocked = true
+				break
+			}
+		}
+		if blocked {
+			continue
+		}
+
+		if restaurantCategoryRe.MatchString(lc) {
+			return true
+		}
+	}
+
+	return false
+}
+
+var restaurantCategoryRe = regexpMustCompileWord(
+	"restaurant", "café", "cafe", "bar", "bakery", "bistro", "pub",
+	"pizzeria", "diner", "eatery", "steakhouse", "brewery",
+	"winery", "creamery", "delicatessen", "deli", "confectionery",
+	"coffee", "gastropub", "taqueria", "ramen", "sushi", "buffet",
+	"canteen", "grill", "tavern", "trattoria", "osteria", "izakaya",
+	"churrascaria", "cervejaria", "marisqueira", "tasca", "pastelaria",
+)
+
+func regexpMustCompileWord(words ...string) *regexp.Regexp {
+	parts := make([]string, len(words))
+	for i, w := range words {
+		parts[i] = regexp.QuoteMeta(w)
+	}
+	// Use lookarounds-free word boundaries; Go's regexp supports \b.
+	return regexp.MustCompile(`\b(` + strings.Join(parts, "|") + `)\b`)
+}
+
+func collectCategories(e *Entry) []string {
+	cats := make([]string, 0, len(e.Categories)+1)
+	cats = append(cats, e.Categories...)
+
+	if e.Category != "" {
+		cats = append(cats, e.Category)
+	}
+
+	return cats
 }
 
 func (e *Entry) IsWebsiteValidForEmail() bool {
@@ -191,6 +263,7 @@ func (e *Entry) CsvHeaders() []string {
 		"about",
 		"user_reviews",
 		"user_reviews_extended",
+		"mentioned_in_reviews",
 		"emails",
 	}
 }
@@ -230,6 +303,7 @@ func (e *Entry) CsvRow() []string {
 		stringify(e.About),
 		stringify(e.UserReviews),
 		stringify(e.UserReviewsExtended),
+		stringify(e.MentionedInReviews),
 		stringSliceToString(e.Emails),
 	}
 }
