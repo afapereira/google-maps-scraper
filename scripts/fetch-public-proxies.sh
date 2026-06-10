@@ -57,8 +57,12 @@
 #   PROXY_MAPS_BODY_ERE       grep -E pattern for Maps stage (dual validation).
 #   PROXY_VALIDATE_BODY_ERE   Single-URL mode only: body pattern; defaults to PROXY_GOOGLE_BODY_ERE when strict.
 #   PROXY_MAX_FILE_PRIMARY    Max bytes downloaded for primary URL check (default 524288).
-#   PROXY_MAX_FILE_STAGE2     Max bytes for stage-2 Maps check (default 2097152).
-#   PROXY_MAPS_RECHECK        If 1, fetch Maps URL twice; both must pass (drops flaky proxies; slower).
+#   PROXY_MAX_FILE_STAGE2     Max bytes for stage-2 Maps check (default 4194304 / 4 MB — Maps search pages are large).
+#   PROXY_MAPS_RECHECK        If 1 (default): fetch Maps URL twice; both must pass (drops flaky proxies; slower).
+#                             Set 0 to skip the second Maps check for speed.
+#   PROXY_VALIDATE_TIMEOUT_STAGE2  max-time for the Maps stage curl (default: PROXY_VALIDATE_TIMEOUT+15, min 50s).
+#                             Maps search pages load more JS than google.com; this prevents valid proxies
+#                             from being rejected due to under-timed downloads.
 #   PROXY_PROXYSCRAPE_SSL_ONLY If 1 (default): ProxyScrape ssl=yes (proxies that advertise HTTPS support).
 #   GEONODE_QUERY_EXTRA       Optional string appended to Geonode URLs e.g. '&anonymityLevel=elite' if your tier supports it.
 #   PROXY_VALIDATE_MAX      Max deduped candidates to test (default 6000, or 4000 with FETCH_FAST; 0 = all — slow)
@@ -90,7 +94,9 @@ GETPROXYLIST_REQUESTS="${GETPROXYLIST_REQUESTS:-30}"
 SKIP_PROXY_VALIDATION="${SKIP_PROXY_VALIDATION:-0}"
 PROXY_VALIDATE_URL="${PROXY_VALIDATE_URL:-https://www.google.com/}"
 PROXY_DUAL_VALIDATION="${PROXY_DUAL_VALIDATION:-1}"
-PROXY_VALIDATE_STAGE2_URL="${PROXY_VALIDATE_STAGE2_URL:-https://www.google.com/maps}"
+# Use a Maps search URL — much closer to what the scraper does; captcha/blocks surface here
+# but not always on the Maps homepage.
+PROXY_VALIDATE_STAGE2_URL="${PROXY_VALIDATE_STAGE2_URL:-https://www.google.com/maps/search/restaurants}"
 PROXY_PROXYSCRAPE_SSL_ONLY="${PROXY_PROXYSCRAPE_SSL_ONLY:-1}"
 FETCH_FAST="${FETCH_FAST:-0}"
 FETCH_LOG_FILE="${FETCH_LOG_FILE:-}"
@@ -390,10 +396,19 @@ curl_validate_one_line_dual() {
 	local t="$6"
 	local px="${scheme}://${line}"
 	local tmp1 tmp2 ere1 ere2
+	# Maps search pages load significantly more JS than google.com; give stage-2 extra time.
+	# Override via PROXY_VALIDATE_TIMEOUT_STAGE2. Default: t+15s (floor 50s under strict-chrome).
+	local _t2_add=15
+	local t2="${PROXY_VALIDATE_TIMEOUT_STAGE2:-}"
+	if [[ -z "$t2" ]]; then
+		t2=$((t + _t2_add))
+		[[ "${PROXY_STRICT_CHROME:-1}" != 0 ]] && [[ "$t2" -lt 50 ]] && t2=50
+	fi
 
 	if [[ "${PROXY_STRICT_BODY_CHECK:-1}" != 0 ]]; then
 		ere1="${PROXY_GOOGLE_BODY_ERE:-googlelogo|name=\"q\"|google\\.com}"
-		ere2="${PROXY_MAPS_BODY_ERE:-maps\\.gstatic\\.com|Google[[:space:]]Maps|/maps/_/}"
+		# APP_INITIALIZATION_STATE only appears when Maps app fully initializes (absent on captcha/block pages).
+		ere2="${PROXY_MAPS_BODY_ERE:-maps\\.gstatic\\.com|APP_INITIALIZATION_STATE|/maps/_/rpc|Google[[:space:]]Maps}"
 		tmp1=$(mktemp) || return 1
 		tmp2=$(mktemp) || {
 			rm -f "$tmp1"
@@ -406,18 +421,19 @@ curl_validate_one_line_dual() {
 			return 1
 		fi
 		rm -f "$tmp1"
-		if ! _curl_chrome_through "$px" "$c" "$t" \
-			--max-filesize "${PROXY_MAX_FILE_STAGE2:-2097152}" -o "$tmp2" "$url2" \
+		# Stage 2: Maps search — 4 MB limit (search pages are heavier), longer timeout.
+		if ! _curl_chrome_through "$px" "$c" "$t2" \
+			--max-filesize "${PROXY_MAX_FILE_STAGE2:-4194304}" -o "$tmp2" "$url2" \
 			|| ! grep -qE "$ere2" "$tmp2" 2>/dev/null; then
 			rm -f "$tmp2"
 			return 1
 		fi
 		rm -f "$tmp2"
 
-		if [[ "${PROXY_MAPS_RECHECK:-0}" != 0 ]]; then
+		if [[ "${PROXY_MAPS_RECHECK:-1}" != 0 ]]; then
 			tmp2=$(mktemp) || return 1
-			if ! _curl_chrome_through "$px" "$c" "$t" \
-				--max-filesize "${PROXY_MAX_FILE_STAGE2:-2097152}" -o "$tmp2" "$url2" \
+			if ! _curl_chrome_through "$px" "$c" "$t2" \
+				--max-filesize "${PROXY_MAX_FILE_STAGE2:-4194304}" -o "$tmp2" "$url2" \
 				|| ! grep -qE "$ere2" "$tmp2" 2>/dev/null; then
 				rm -f "$tmp2"
 				return 1
@@ -428,7 +444,7 @@ curl_validate_one_line_dual() {
 		if ! _curl_chrome_through "$px" "$c" "$t" -o /dev/null "$url1"; then
 			return 1
 		fi
-		if ! _curl_chrome_through "$px" "$c" "$t" -o /dev/null "$url2"; then
+		if ! _curl_chrome_through "$px" "$c" "$t2" -o /dev/null "$url2"; then
 			return 1
 		fi
 	fi
