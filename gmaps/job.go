@@ -173,9 +173,10 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 			jopts = append(jopts, WithPlaceJobWriterManagedCompletion())
 		}
 
-		jopts = append(jopts, WithPlaceJobRestaurantsOnly(j.RestaurantsOnly))
-		jopts = append(jopts, WithPlaceJobReviewSort(j.ReviewSort))
-		jopts = append(jopts, WithPlaceJobMaxReviews(j.MaxReviews))
+		jopts = append(jopts,
+			WithPlaceJobRestaurantsOnly(j.RestaurantsOnly),
+			WithPlaceJobReviewSort(j.ReviewSort),
+			WithPlaceJobMaxReviews(j.MaxReviews))
 
 		placeJob := NewPlaceJob(j.ID, j.LangCode, resp.URL, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
 
@@ -192,9 +193,10 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 					jopts = append(jopts, WithPlaceJobWriterManagedCompletion())
 				}
 
-				jopts = append(jopts, WithPlaceJobRestaurantsOnly(j.RestaurantsOnly))
-				jopts = append(jopts, WithPlaceJobReviewSort(j.ReviewSort))
-				jopts = append(jopts, WithPlaceJobMaxReviews(j.MaxReviews))
+				jopts = append(jopts,
+					WithPlaceJobRestaurantsOnly(j.RestaurantsOnly),
+					WithPlaceJobReviewSort(j.ReviewSort),
+					WithPlaceJobMaxReviews(j.MaxReviews))
 
 				nextJob := NewPlaceJob(j.ID, j.LangCode, href, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
 
@@ -390,7 +392,9 @@ func scroll(ctx context.Context,
 		if scrollHeight == nil {
 			break
 		}
+
 		var height int
+
 		switch v := scrollHeight.(type) {
 		case int:
 			height = v

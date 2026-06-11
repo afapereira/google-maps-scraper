@@ -105,9 +105,10 @@ func CreateSeedJobs(
 				opts = append(opts, gmaps.WithExtraReviews())
 			}
 
-			opts = append(opts, gmaps.WithRestaurantsOnly(restaurantsOnly))
-			opts = append(opts, gmaps.WithReviewSort(reviewSort))
-			opts = append(opts, gmaps.WithMaxReviews(maxReviews))
+			opts = append(opts,
+				gmaps.WithRestaurantsOnly(restaurantsOnly),
+				gmaps.WithReviewSort(reviewSort),
+				gmaps.WithMaxReviews(maxReviews))
 
 			job = gmaps.NewGmapJob(id, langCode, query, maxDepth, email, geoCoordinates, zoom, opts...)
 		} else {

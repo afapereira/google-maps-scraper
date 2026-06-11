@@ -222,12 +222,14 @@ func (e *Entry) IsRestaurantLike() bool {
 		lc := strings.ToLower(c)
 
 		blocked := false
+
 		for _, s := range skip {
 			if strings.Contains(lc, s) {
 				blocked = true
 				break
 			}
 		}
+
 		if blocked {
 			continue
 		}

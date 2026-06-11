@@ -42,6 +42,8 @@ func reviewSortCode(name string) int {
 	}
 }
 
+const reviewSortNewest = "newest"
+
 // applyReviewSort drives the place panel's "Sort" dropdown to the requested
 // option. Opens the Reviews tab first if it isn't already active. Returns true
 // if a selection was made. Both the RPC review fetch and the DOM fallback
@@ -65,10 +67,12 @@ func applyReviewSort(page scrapemate.BrowserPage, name string) bool {
 			return false;
 		} catch (e) { return false; }
 	}`)
+
 	time.Sleep(500 * time.Millisecond)
 
 	// Map sort name -> the menu-item label Google renders in the dropdown.
-	target := "newest"
+	var target string
+
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "relevant", "most_relevant", "most-relevant", "":
 		target = "most relevant"
@@ -76,10 +80,10 @@ func applyReviewSort(page scrapemate.BrowserPage, name string) bool {
 		target = "highest rating"
 	case "lowest", "lowest_rating", "lowest-rating":
 		target = "lowest rating"
-	case "newest", "most_recent", "recent":
-		target = "newest"
+	case reviewSortNewest, "most_recent", "recent":
+		target = reviewSortNewest
 	default:
-		target = "newest"
+		target = reviewSortNewest
 	}
 
 	// Open the sort dropdown.
@@ -464,6 +468,8 @@ func ConvertDOMReviewsToReviews(domReviews []DOMReview) []Review {
 // extractReviewsFromPage extracts reviews directly from the page DOM.
 // `maxReviews` caps the result (0 → default 200). This is the primary path
 // when a non-default sort is requested, and the fallback when the RPC fails.
+//
+//nolint:gocyclo // DOM scroll/extraction handles many page-state edge cases inline; splitting would obscure the scrape flow.
 func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, maxReviews int) ([]DOMReview, error) {
 	if maxReviews <= 0 {
 		maxReviews = 200
@@ -1034,21 +1040,28 @@ func ExtractMentionedInReviews(page scrapemate.BrowserPage) []MentionedDish {
 func parseDishes(arr []any) []MentionedDish {
 	out := make([]MentionedDish, 0, len(arr))
 	seen := make(map[string]struct{}, len(arr))
+
 	for _, v := range arr {
 		m, ok := v.(map[string]any)
 		if !ok {
 			continue
 		}
+
 		name, _ := m["name"].(string)
 		name = strings.TrimSpace(name)
+
 		if name == "" {
 			continue
 		}
+
 		if _, dup := seen[name]; dup {
 			continue
 		}
+
 		seen[name] = struct{}{}
+
 		var count int
+
 		switch c := m["count"].(type) {
 		case float64:
 			count = int(c)
@@ -1065,8 +1078,10 @@ func parseDishes(arr []any) []MentionedDish {
 				count = n
 			}
 		}
+
 		out = append(out, MentionedDish{Name: name, Count: count})
 	}
+
 	return out
 }
 
@@ -1078,17 +1093,18 @@ func FetchReviewsWithFallback(ctx context.Context, params fetchReviewsParams) (F
 	// sortCode 0 (uninitialised) or 1 (most_relevant) = use RPC.
 	// Anything else: DOM only, because RPC ignores sort.
 	if params.sortCode != 0 && params.sortCode != 1 {
+		// If DOM extraction is unavailable or fails, fall through to RPC as a last resort.
 		if params.page != nil {
 			domReviews, domErr := extractReviewsFromPage(ctx, params.page, params.maxReviews)
 			if domErr == nil && len(domReviews) > 0 {
 				log.Printf("DOM extraction (sort=%d) successful: %d reviews", params.sortCode, len(domReviews))
 				return FetchReviewsResponse{}, domReviews, nil
 			}
+
 			if domErr != nil {
 				log.Printf("DOM extraction (sort=%d) failed: %v", params.sortCode, domErr)
 			}
 		}
-		// If DOM unavailable/failed, fall through to RPC as a last resort.
 	}
 
 	fetcher := newReviewFetcher(params)

@@ -155,6 +155,7 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 		entry Entry
 		err   error
 	)
+
 	if cached, ok := resp.Meta["entry"].(Entry); ok {
 		entry = cached
 	} else {
@@ -178,6 +179,7 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 	// The entry is fully parsed but never reaches the writer.
 	if j.RestaurantsOnly && !entry.IsRestaurantLike() {
 		log.Printf("[restaurants-only] dropped: %s (%s)", entry.Title, entry.Category)
+
 		if j.ExitMonitor != nil && !j.WriterManagedCompletion {
 			j.ExitMonitor.IncrPlacesCompleted(1)
 		}
@@ -295,6 +297,7 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 		if perr == nil {
 			reviewCount = peek.ReviewCount
 		}
+
 		if reviewCount > 0 { // download reviews for any place that has them
 			// Drive the page's Sort dropdown so both RPC and DOM-fallback
 			// paths inherit the requested ordering.
