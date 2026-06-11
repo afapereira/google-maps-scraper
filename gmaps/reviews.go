@@ -958,11 +958,11 @@ func ExtractMentionedInReviews(page scrapemate.BrowserPage) []MentionedDish {
 	}
 
 	var (
-		lastCount   int
-		stableHits  int
-		emptyHits   int
-		viewedMore  bool
-		dishes      []MentionedDish
+		lastCount  int
+		stableHits int
+		emptyHits  int
+		viewedMore bool
+		dishes     []MentionedDish
 	)
 
 	for attempt := 0; time.Now().Before(deadline); attempt++ {
