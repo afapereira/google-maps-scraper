@@ -232,6 +232,15 @@ func (j *GmapJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPag
 	// Ignore WaitForURL errors — Google Maps may redirect slowly especially via proxy
 	_ = page.WaitForURL(page.URL(), defaultTimeout)
 
+	// A block page would otherwise look like a search with zero results and
+	// "succeed" silently, losing the whole cell. Error out so the job retries
+	// on a fresh browser+proxy instead.
+	if isGoogleBlockPage(page) {
+		resp.Error = ErrGoogleBlocked
+
+		return resp
+	}
+
 	resp.URL = pageResponse.URL
 	resp.StatusCode = pageResponse.StatusCode
 	resp.Headers = pageResponse.Headers

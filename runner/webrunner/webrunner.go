@@ -285,7 +285,7 @@ func (w *webrunner) setupMate(_ context.Context, writer io.Writer, job *web.Job)
 	if !w.cfg.DisablePageReuse {
 		opts = append(opts,
 			scrapemateapp.WithPageReuseLimit(2),
-			scrapemateapp.WithPageReuseLimit(200),
+			scrapemateapp.WithBrowserReuseLimit(200),
 		)
 	}
 

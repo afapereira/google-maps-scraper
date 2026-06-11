@@ -21,17 +21,19 @@ truncated.  Deduplication by place_id means no place is counted twice.
 
 Usage
 -----
+  # Build the scraper first:  go build -o google-maps-scraper.exe .
   python3 scripts/scrape-full-coverage.py \\
     --bbox "38.69,-9.23,38.80,-9.09" \\
     --query "restaurants" \\
-    --bin ./google-maps-scraper-rod.exe \\
-    --out restaurants/out/restaurants-full.json
+    --bin ./google-maps-scraper.exe \\
+    --out restaurants/out/restaurants-full.json \\
+    --proxies-file restaurants/proxies-comma.txt
 
   # Faster run (no emails, no extra reviews, coarser grid):
   python3 scripts/scrape-full-coverage.py \\
     --bbox "38.69,-9.23,38.80,-9.09" \\
     --query "restaurants" \\
-    --bin ./google-maps-scraper-rod.exe \\
+    --bin ./google-maps-scraper.exe \\
     --out restaurants/out/restaurants-full.json \\
     --cell-sizes "2,1" --no-email --no-reviews --depth 20
 
@@ -42,7 +44,7 @@ Flags
 -----
   --bbox          minLat,minLon,maxLat,maxLon
   --query         Search term passed to every grid cell (e.g. "restaurants")
-  --bin           Path to scraper binary (google-maps-scraper-rod.exe or .exe)
+  --bin           Path to scraper binary (build with: go build -o google-maps-scraper.exe .)
   --out           Output JSON file (array of place objects)
   --cell-sizes    Comma-separated cell sizes in km, coarse→fine (default: 2,1,0.5)
   --min-gain-pct  Stop when a pass adds fewer than this % new places (default: 3.0)
@@ -302,9 +304,10 @@ def main() -> None:
                         help="Use Docker instead of a local binary (e.g. gosom/google-maps-scraper)")
     args = parser.parse_args()
 
-    # When --docker-image is given, always use Docker (even if a local binary exists).
-    # The Docker/Playwright build handles authenticated HTTP proxies correctly;
-    # the Rod binary passes credentials inline to Chrome which rejects them.
+    # When --docker-image is given, always use Docker (even if a local binary
+    # exists). The local Playwright build also handles authenticated proxies
+    # (scrapemate strips user:pass into a local auth proxy), so Docker is just
+    # an alternative runtime, not a requirement.
     use_docker = bool(args.docker_image)
     if not use_docker and not os.path.isfile(args.bin):
         print(f"ERROR: scraper binary not found: {args.bin}  (pass --docker-image to use Docker)", file=sys.stderr)

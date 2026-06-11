@@ -91,6 +91,40 @@ func (j *PlaceJob) ProcessOnFetchError() bool {
 	return true
 }
 
+// ErrGoogleBlocked indicates Google served a captcha/"unusual traffic" page
+// instead of real content. Returning it as the job error makes scrapemate
+// retry the job; the jshttp fetcher recycles the browser on any failed job,
+// so the retry runs through the NEXT proxy in the pool.
+var ErrGoogleBlocked = fmt.Errorf("google block page detected (captcha/unusual traffic)")
+
+// isGoogleBlockPage detects Google's interstitial block pages: the /sorry/
+// redirect, the reCAPTCHA form, or the "unusual traffic" notice.
+func isGoogleBlockPage(page scrapemate.BrowserPage) bool {
+	if page == nil {
+		return false
+	}
+
+	if strings.Contains(page.URL(), "/sorry/") {
+		return true
+	}
+
+	res, err := page.Eval(`() => {
+		try {
+			if (location.pathname.startsWith('/sorry')) return true;
+			if (document.querySelector('#captcha-form, form#captcha-form, iframe[src*="recaptcha"]')) return true;
+			const t = (document.body && document.body.innerText || '').slice(0, 2000).toLowerCase();
+			return t.includes('unusual traffic') || t.includes('automated queries');
+		} catch (e) { return false; }
+	}`)
+	if err != nil {
+		return false
+	}
+
+	blocked, _ := res.(bool)
+
+	return blocked
+}
+
 func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, []scrapemate.IJob, error) {
 	defer func() {
 		resp.Document = nil
@@ -209,12 +243,26 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 	// Ignore WaitForURL errors — Google Maps may redirect slowly especially via proxy
 	_ = page.WaitForURL(page.URL(), defaultTimeout)
 
+	// Fail fast on Google block pages: erroring here (instead of burning the
+	// 30s JSON-extraction timeout) triggers a retry on a fresh browser+proxy.
+	if isGoogleBlockPage(page) {
+		resp.Error = ErrGoogleBlocked
+
+		return resp
+	}
+
 	resp.URL = pageResponse.URL
 	resp.StatusCode = pageResponse.StatusCode
 	resp.Headers = pageResponse.Headers
 
 	raw, err := j.extractJSON(page)
 	if err != nil {
+		// Distinguish a block page from a transient render issue so the retry
+		// rotates the proxy with a meaningful error in the logs.
+		if isGoogleBlockPage(page) {
+			err = ErrGoogleBlocked
+		}
+
 		resp.Error = err
 
 		return resp
