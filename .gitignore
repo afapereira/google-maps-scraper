@@ -11,5 +11,9 @@ gmaps-output
 restaurants/proxies-comma.txt
 *proxies*.txt
 
+# Scrape outputs — keep local, never commit (preserve the dir via .gitkeep)
+restaurants/out/
+!restaurants/out/.gitkeep
+
 # Build artifacts — binaries don't belong in git
 *.exe
