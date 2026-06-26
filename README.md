@@ -101,11 +101,11 @@ Unlock global access with consistent, high-speed connections from $0.65/GB, 90M+
 
 ---
 
-### [LeadsDB](https://getleadsdb.com/) - Your Central Database for Business Leads
+### [TalorData](https://talordata.com/?campaignid=f01u8cHondg2qA47&utm_source=github&utm_term=googlemaps) - Fast SERP API for Google Maps and Search Data
 
-[![LeadsDB](./img/leadsdb-banner.png)](https://getleadsdb.com/)
+[![TalorData](./img/talordata.png)](https://talordata.com/?campaignid=f01u8cHondg2qA47&utm_source=github&utm_term=googlemaps)
 
-Push leads via API or AI agent, remove duplicates automatically, and export when ready. [**Start free →**](https://getleadsdb.com/)
+Real-time SERP data APIs for Google Maps and search results, with structured JSON / HTML responses and 1,000 free API responses to start. [**Start using TalorData →**](https://talordata.com/?campaignid=f01u8cHondg2qA47&utm_source=github&utm_term=googlemaps) | [Learn more](talordata.md)
 
 ---
 
@@ -124,6 +124,14 @@ The most affordable premium proxies across 195 countries & 80+ million IPs, plus
 Hey, we built BirdProxies because proxies shouldn't be complicated or overpriced. Fast residential and ISP proxies in 195+ locations, fair pricing, and real support. Try our FlappyBird game on the landing page for free data!
 
 [**Visit BirdProxies →**](https://birdproxies.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=gosom-google-maps-scraper) | [Join Discord](https://discord.com/invite/birdproxies)
+
+---
+
+### [Proxidize](https://proxidize.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=google_maps_scraper&utm_content=gosom) - Proxies for Google Maps Scraping
+
+[![Proxidize | Proxies for Google Maps Scraping](https://imagedelivery.net/r4caA8hJ3Ww3j8uyC_NNCA/23ee92b0-9fae-4c55-6865-9ca35387fb00/public)](https://proxidize.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=google_maps_scraper&utm_content=gosom)
+
+Mobile and residential proxies for Google Maps scraping, local SEO, lead generation, and data collection. Use code `gmaps20` for 20% off. [**Visit Proxidize →**](https://proxidize.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=google_maps_scraper&utm_content=gosom)
 
 ---
 
@@ -321,7 +329,7 @@ docker pull gosom/google-maps-scraper
 
 ### Build from Source
 
-Requirements: Go 1.26.3+
+Requirements: Go 1.26.4+
 
 ```bash
 git clone https://github.com/gosom/google-maps-scraper.git
@@ -355,7 +363,7 @@ go build
 ## Extracted Data Points
 
 <details>
-<summary><strong>Click to expand all 33 data points</strong></summary>
+<summary><strong>Click to expand all 36 data points</strong></summary>
 
 | # | Field | Description |
 |---|-------|-------------|
@@ -382,17 +390,19 @@ go build
 | 21 | `timezone` | Business timezone |
 | 22 | `price_range` | Price level ($, $$, $$$) |
 | 23 | `data_id` | Internal Google Maps identifier |
-| 24 | `images` | Associated image URLs |
-| 25 | `reservations` | Reservation booking link |
-| 26 | `order_online` | Online ordering link |
-| 27 | `menu` | Menu link |
-| 28 | `owner` | Owner-claimed status |
-| 29 | `complete_address` | Full formatted address |
-| 30 | `about` | Additional business info |
-| 31 | `user_reviews` | Customer reviews (text, rating, timestamp) |
-| 32 | `emails` | Extracted email addresses (requires `-email` flag) |
-| 33 | `user_reviews_extended` | Extended reviews up to ~300 (requires `-extra-reviews`) |
-| 34 | `place_id` | Google's unique place id |
+| 24 | `street_view_url` | Street View URL |
+| 25 | `place_id` | Google's unique place id |
+| 26 | `images` | Associated image URLs |
+| 27 | `reservations` | Reservation booking link |
+| 28 | `order_online` | Online ordering link |
+| 29 | `menu` | Menu link |
+| 30 | `owner` | Owner-claimed status |
+| 31 | `complete_address` | Full formatted address |
+| 32 | `credit_cards_accepted` | Accepted credit card networks |
+| 33 | `about` | Additional business info |
+| 34 | `user_reviews` | Customer reviews (text, rating, timestamp) |
+| 35 | `user_reviews_extended` | Extended reviews up to ~300 (requires `-extra-reviews`) |
+| 36 | `emails` | Extracted email addresses (requires `-email` flag) |
 
 </details>
 
