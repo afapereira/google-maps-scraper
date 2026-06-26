@@ -170,3 +170,25 @@ func ensureLen(items []any, length int) []any {
 
 	return extended
 }
+
+func TestPostalCodeFromAddress(t *testing.T) {
+	tests := []struct {
+		name    string
+		address string
+		want    string
+	}{
+		{"portugal", "Rua de O Século 145, 1250-095 Lisboa", "1250-095"},
+		{"us zip+4", "1600 Amphitheatre Pkwy, Mountain View, CA 94043-1351", "94043-1351"},
+		{"uk", "10 Downing St, London SW1A 2AA, UK", "SW1A 2AA"},
+		{"canada", "111 Wellington St, Ottawa, ON K1A 0A9", "K1A 0A9"},
+		{"no postal code", "Some Street 12, Lisboa", ""},
+		{"bare house number not matched", "Rua Augusta 100, Lisboa", ""},
+		{"empty", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, postalCodeFromAddress(tt.address))
+		})
+	}
+}

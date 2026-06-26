@@ -874,13 +874,14 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, ma
 }
 
 // ExtractMentionedInReviews scrapes the "mentioned in reviews" keyword chips
-// (dish names + their review counts) that Google Maps surfaces above the
-// reviews list for a place. Non-food topics (service, wait time, parking, etc.)
-// are filtered out. Results come back sorted by count, descending.
+// (keyword + their review counts) that Google Maps surfaces above the reviews
+// list for a place. All chips are captured — dishes (e.g. "octopus") as well as
+// topic tags (e.g. "service", "atmosphere", "great value"). Results come back
+// sorted by count, descending.
 //
 // Side effect: opens the Reviews tab on the place panel, since the keyword
 // chips are only rendered once that tab is active.
-func ExtractMentionedInReviews(page scrapemate.BrowserPage) []MentionedDish {
+func ExtractMentionedInReviews(page scrapemate.BrowserPage) []MentionedKeyword {
 	if page == nil {
 		return nil
 	}
@@ -906,18 +907,6 @@ func ExtractMentionedInReviews(page scrapemate.BrowserPage) []MentionedDish {
 			const seen = new Set();
 			// Chip aria-labels read: "<keyword>, mentioned in <N> reviews".
 			const chipRe = /^(.+?),\s*mentioned in\s+([\d,\.]+)\s+reviews?$/i;
-			const nonFood = new Set([
-				'wait time','waiting time','wait','waiting','queue','line','reservation','reservations','booking',
-				'service','staff','waiter','waiters','waitress','server','servers','customer service','manager',
-				'price','prices','pricing','value','bill','check','cash','card','credit card','tip','tipping',
-				'atmosphere','ambience','ambiance','vibe','vibes','decor','decoration','music','noise','lighting','crowd',
-				'view','views','location','spot','place','area','neighborhood','seating','tables','table','bathroom','restroom','toilet','toilets',
-				'parking','valet','wifi','wi-fi','reservation policy','dress code',
-				'breakfast','brunch','lunch','dinner','meal','meals','menu','portion','portions','portion size','serving','servings',
-				'takeout','take out','take-out','delivery','to go','takeaway','outdoor seating','patio','terrace',
-				'happy hour','date night','birthday','anniversary','family','kids','children','tourists','locals',
-				'experience','quality','recommendation','recommend','visit','time','first time','second time'
-			]);
 
 			// Scope to the reviews scroll container if we can find it — saves
 			// scanning hundreds of unrelated buttons. Fall back to full DOM
@@ -936,7 +925,6 @@ func ExtractMentionedInReviews(page scrapemate.BrowserPage) []MentionedDish {
 				const label = m[1].trim();
 				if (!label || label.length > 40) continue;
 				const key = label.toLowerCase();
-				if (nonFood.has(key)) continue;
 				if (seen.has(key)) continue;
 				seen.add(key);
 				const count = parseInt(m[2].replace(/[,.]/g, ''), 10) || 0;
@@ -968,7 +956,7 @@ func ExtractMentionedInReviews(page scrapemate.BrowserPage) []MentionedDish {
 		stableHits int
 		emptyHits  int
 		viewedMore bool
-		dishes     []MentionedDish
+		chips      []MentionedKeyword
 	)
 
 	for attempt := 0; time.Now().Before(deadline); attempt++ {
@@ -1002,7 +990,7 @@ func ExtractMentionedInReviews(page scrapemate.BrowserPage) []MentionedDish {
 
 		arr, _ := raw.([]any)
 		if len(arr) > 0 {
-			cur := parseDishes(arr)
+			cur := parseChips(arr)
 			if len(cur) == lastCount {
 				stableHits++
 			} else {
@@ -1010,7 +998,7 @@ func ExtractMentionedInReviews(page scrapemate.BrowserPage) []MentionedDish {
 				lastCount = len(cur)
 			}
 
-			dishes = cur
+			chips = cur
 			emptyHits = 0
 
 			if stableHits >= 1 {
@@ -1025,20 +1013,20 @@ func ExtractMentionedInReviews(page scrapemate.BrowserPage) []MentionedDish {
 	}
 
 	// Sort by count desc, then name asc for stable output.
-	for i := 0; i < len(dishes); i++ {
-		for j := i + 1; j < len(dishes); j++ {
-			if dishes[j].Count > dishes[i].Count ||
-				(dishes[j].Count == dishes[i].Count && dishes[j].Name < dishes[i].Name) {
-				dishes[i], dishes[j] = dishes[j], dishes[i]
+	for i := 0; i < len(chips); i++ {
+		for j := i + 1; j < len(chips); j++ {
+			if chips[j].Count > chips[i].Count ||
+				(chips[j].Count == chips[i].Count && chips[j].Name < chips[i].Name) {
+				chips[i], chips[j] = chips[j], chips[i]
 			}
 		}
 	}
 
-	return dishes
+	return chips
 }
 
-func parseDishes(arr []any) []MentionedDish {
-	out := make([]MentionedDish, 0, len(arr))
+func parseChips(arr []any) []MentionedKeyword {
+	out := make([]MentionedKeyword, 0, len(arr))
 	seen := make(map[string]struct{}, len(arr))
 
 	for _, v := range arr {
@@ -1079,7 +1067,7 @@ func parseDishes(arr []any) []MentionedDish {
 			}
 		}
 
-		out = append(out, MentionedDish{Name: name, Count: count})
+		out = append(out, MentionedKeyword{Name: name, Count: count})
 	}
 
 	return out

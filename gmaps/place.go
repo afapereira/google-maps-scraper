@@ -195,8 +195,8 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 		entry.AddExtraReviews(allReviewsRaw.pages)
 	}
 
-	if dishes, ok := resp.Meta["mentioned_in_reviews"].([]MentionedDish); ok && len(dishes) > 0 {
-		entry.MentionedInReviews = dishes
+	if chips, ok := resp.Meta["mentioned_in_reviews"].([]MentionedKeyword); ok && len(chips) > 0 {
+		entry.MentionedInReviews = chips
 	}
 
 	// Handle DOM-based reviews (fallback)
@@ -284,21 +284,29 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 		resp.Meta["entry"] = peek
 	}
 
-	// Only run dish-chip extraction for restaurant-like places with reviews —
+	// Only run keyword-chip extraction for restaurant-like places with reviews —
 	// the click+poll costs up to ~2 s and produces nothing on other categories.
-	if perr == nil && peek.IsRestaurantLike() && peek.ReviewCount > 0 {
-		if dishes := ExtractMentionedInReviews(page); len(dishes) > 0 {
-			resp.Meta["mentioned_in_reviews"] = dishes
+	// Some listings parse ReviewCount as 0 even though they have reviews; fall
+	// back to ReviewRating > 0 so those still get keyword/label-chip extraction.
+	if perr == nil && peek.IsRestaurantLike() && (peek.ReviewCount > 0 || peek.ReviewRating > 0) {
+		if chips := ExtractMentionedInReviews(page); len(chips) > 0 {
+			resp.Meta["mentioned_in_reviews"] = chips
 		}
 	}
 
 	if j.ExtractExtraReviews {
 		reviewCount := 0
+		reviewRating := 0.0
+
 		if perr == nil {
 			reviewCount = peek.ReviewCount
+			reviewRating = peek.ReviewRating
 		}
 
-		if reviewCount > 0 { // download reviews for any place that has them
+		// A parsed count of 0 with a non-zero rating means the count field did
+		// not parse (Google's data layout varies); the place still has reviews,
+		// so attempt the fetch — the RPC/DOM paths don't rely on the count.
+		if reviewCount > 0 || reviewRating > 0 { // download reviews for any place that has them
 			// Drive the page's Sort dropdown so both RPC and DOM-fallback
 			// paths inherit the requested ordering.
 			applyReviewSort(page, j.ReviewSort)

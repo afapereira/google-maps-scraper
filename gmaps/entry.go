@@ -17,6 +17,29 @@ import (
 
 var panoidRegex = regexp.MustCompile(`panoid=([^&]+)`)
 
+// postalCodeRegexes matches distinctive, multi-part postal-code formats that can
+// be safely recovered from a free-text address without false-positiving on house
+// numbers. Bare numeric codes (US 5-digit, FR/DE/ES, etc.) are intentionally
+// omitted: in a free-text address they are indistinguishable from street numbers.
+var postalCodeRegexes = []*regexp.Regexp{
+	regexp.MustCompile(`\b\d{4}-\d{3}\b`),                      // Portugal: 1250-095
+	regexp.MustCompile(`\b\d{5}-\d{4}\b`),                      // US ZIP+4: 90210-1234
+	regexp.MustCompile(`\b[A-Z]{1,2}\d[A-Z\d]? ?\d[A-Z]{2}\b`), // UK: SW1A 1AA
+	regexp.MustCompile(`\b[A-Z]\d[A-Z] ?\d[A-Z]\d\b`),          // Canada: K1A 0B1
+}
+
+// postalCodeFromAddress extracts a postal code from a free-text address using the
+// distinctive formats in postalCodeRegexes. It returns "" when none match.
+func postalCodeFromAddress(address string) string {
+	for _, re := range postalCodeRegexes {
+		if m := re.FindString(address); m != "" {
+			return m
+		}
+	}
+
+	return ""
+}
+
 type Image struct {
 	Title string `json:"title"`
 	Image string `json:"image"`
@@ -53,7 +76,10 @@ type About struct {
 	Options []Option `json:"options"`
 }
 
-type MentionedDish struct {
+// MentionedKeyword is one "People often mention" chip from a place's reviews:
+// a keyword (a dish like "octopus" or a topic like "service"/"great value")
+// and the number of reviews that mention it.
+type MentionedKeyword struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
 }
@@ -114,27 +140,27 @@ type Entry struct {
 	// key are misspelled ("longtitude"); MarshalJSON also emits the correctly
 	// spelled "longitude" key, and UnmarshalJSON accepts either. The field
 	// name is kept for backwards compatibility with existing imports.
-	Longtitude          float64         `json:"longtitude"`
-	Status              string          `json:"status"`
-	Description         string          `json:"description"`
-	ReviewsLink         string          `json:"reviews_link"`
-	Thumbnail           string          `json:"thumbnail"`
-	Timezone            string          `json:"timezone"`
-	PriceRange          string          `json:"price_range"`
-	DataID              string          `json:"data_id"`
-	StreetViewURL       string          `json:"street_view_url"`
-	PlaceID             string          `json:"place_id"`
-	Images              []Image         `json:"images"`
-	Reservations        []LinkSource    `json:"reservations"`
-	OrderOnline         []LinkSource    `json:"order_online"`
-	Menu                LinkSource      `json:"menu"`
-	Owner               Owner           `json:"owner"`
-	CompleteAddress     Address         `json:"complete_address"`
-	About               []About         `json:"about"`
-	UserReviews         []Review        `json:"user_reviews"`
-	UserReviewsExtended []Review        `json:"user_reviews_extended"`
-	MentionedInReviews  []MentionedDish `json:"mentioned_in_reviews"`
-	Emails              []string        `json:"emails"`
+	Longtitude          float64            `json:"longtitude"`
+	Status              string             `json:"status"`
+	Description         string             `json:"description"`
+	ReviewsLink         string             `json:"reviews_link"`
+	Thumbnail           string             `json:"thumbnail"`
+	Timezone            string             `json:"timezone"`
+	PriceRange          string             `json:"price_range"`
+	DataID              string             `json:"data_id"`
+	StreetViewURL       string             `json:"street_view_url"`
+	PlaceID             string             `json:"place_id"`
+	Images              []Image            `json:"images"`
+	Reservations        []LinkSource       `json:"reservations"`
+	OrderOnline         []LinkSource       `json:"order_online"`
+	Menu                LinkSource         `json:"menu"`
+	Owner               Owner              `json:"owner"`
+	CompleteAddress     Address            `json:"complete_address"`
+	About               []About            `json:"about"`
+	UserReviews         []Review           `json:"user_reviews"`
+	UserReviewsExtended []Review           `json:"user_reviews_extended"`
+	MentionedInReviews  []MentionedKeyword `json:"mentioned_in_reviews"`
+	Emails              []string           `json:"emails"`
 }
 
 // entryAlias is used inside Marshal/UnmarshalJSON to avoid infinite recursion
@@ -555,6 +581,12 @@ func EntryFromJSON(raw []byte, reviewCountOnly ...bool) (entry Entry, err error)
 		PostalCode: getNthElementAndCast[string](darray, 183, 1, 4),
 		State:      getNthElementAndCast[string](darray, 183, 1, 5),
 		Country:    getNthElementAndCast[string](darray, 183, 1, 6),
+	}
+
+	// Some listings leave the structured postal-code slot empty even though the
+	// code is present in the free-text address. Recover it from there.
+	if entry.CompleteAddress.PostalCode == "" {
+		entry.CompleteAddress.PostalCode = postalCodeFromAddress(entry.Address)
 	}
 
 	aboutI := getNthElementAndCast[[]any](darray, 100, 1)
