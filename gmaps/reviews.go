@@ -1134,5 +1134,9 @@ func FetchReviewsWithFallback(ctx context.Context, params fetchReviewsParams) (F
 		return FetchReviewsResponse{}, nil, fmt.Errorf("all review extraction methods failed: %v", err)
 	}
 
-	return rpcResponse, nil, nil
+	// Reaching here means RPC yielded no reviews (a non-zero count would have
+	// returned above) and DOM was empty too. Return an empty response rather
+	// than rpcResponse, whose pages may be non-empty but contain zero reviews —
+	// callers treat non-empty pages as "has reviews" and would stop retrying.
+	return FetchReviewsResponse{}, nil, nil
 }

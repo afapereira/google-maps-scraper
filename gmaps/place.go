@@ -307,28 +307,64 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 		// not parse (Google's data layout varies); the place still has reviews,
 		// so attempt the fetch — the RPC/DOM paths don't rely on the count.
 		if reviewCount > 0 || reviewRating > 0 { // download reviews for any place that has them
-			// Drive the page's Sort dropdown so both RPC and DOM-fallback
-			// paths inherit the requested ordering.
-			applyReviewSort(page, j.ReviewSort)
+			// The reviews panel sometimes renders lazily, so a single
+			// click+scroll can see an empty list ("review count stuck at 0")
+			// and give up with no error. Retry the whole fetch a few times so
+			// these transient empty renders self-heal within the run instead of
+			// leaving a place with reviews recorded as having none.
+			const reviewFetchAttempts = 3
 
-			params := fetchReviewsParams{
-				page:        page,
-				mapURL:      page.URL(),
-				reviewCount: reviewCount,
-				sortCode:    reviewSortCode(j.ReviewSort),
-				maxReviews:  j.MaxReviews,
-			}
+			for attempt := 1; attempt <= reviewFetchAttempts; attempt++ {
+				// On retries, reload the place page so the reviews panel
+				// re-renders from scratch. Re-clicking a panel that is stuck on
+				// the same session does not recover it — only a fresh page load
+				// does (which is why a separate re-scrape succeeds).
+				if attempt > 1 {
+					if _, gerr := page.Goto(j.GetURL(), scrapemate.WaitUntilDOMContentLoaded); gerr == nil {
+						clickRejectCookiesIfRequired(page)
+					}
+				}
 
-			// Use the new fallback mechanism that tries RPC first, then DOM
-			rpcData, domReviews, err := FetchReviewsWithFallback(ctx, params)
+				// Drive the page's Sort dropdown so both RPC and DOM-fallback
+				// paths inherit the requested ordering.
+				applyReviewSort(page, j.ReviewSort)
 
-			switch {
-			case err != nil:
-				fmt.Printf("Warning: review extraction failed: %v\n", err)
-			case len(rpcData.pages) > 0:
-				resp.Meta["reviews_raw"] = rpcData
-			case len(domReviews) > 0:
-				resp.Meta["dom_reviews"] = domReviews
+				params := fetchReviewsParams{
+					page:        page,
+					mapURL:      page.URL(),
+					reviewCount: reviewCount,
+					sortCode:    reviewSortCode(j.ReviewSort),
+					maxReviews:  j.MaxReviews,
+				}
+
+				// Use the new fallback mechanism that tries RPC first, then DOM
+				rpcData, domReviews, err := FetchReviewsWithFallback(ctx, params)
+
+				got := len(rpcData.pages) > 0 || len(domReviews) > 0
+
+				switch {
+				case len(rpcData.pages) > 0:
+					resp.Meta["reviews_raw"] = rpcData
+				case len(domReviews) > 0:
+					resp.Meta["dom_reviews"] = domReviews
+				case err != nil && attempt == reviewFetchAttempts:
+					fmt.Printf("Warning: review extraction failed after %d attempts: %v\n", attempt, err)
+				}
+
+				if got {
+					break
+				}
+
+				// Nothing yet — wait briefly for a lazy render, then retry.
+				if attempt < reviewFetchAttempts {
+					log.Printf("review extraction empty (attempt %d/%d), retrying", attempt, reviewFetchAttempts)
+
+					select {
+					case <-ctx.Done():
+						attempt = reviewFetchAttempts // stop retrying on cancellation
+					case <-time.After(1500 * time.Millisecond):
+					}
+				}
 			}
 		}
 	}
