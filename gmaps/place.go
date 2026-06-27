@@ -307,12 +307,23 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 		// not parse (Google's data layout varies); the place still has reviews,
 		// so attempt the fetch — the RPC/DOM paths don't rely on the count.
 		if reviewCount > 0 || reviewRating > 0 { // download reviews for any place that has them
-			// The reviews panel sometimes renders lazily, so a single
-			// click+scroll can see an empty list ("review count stuck at 0")
-			// and give up with no error. Retry the whole fetch a few times so
-			// these transient empty renders self-heal within the run instead of
-			// leaving a place with reviews recorded as having none.
-			const reviewFetchAttempts = 3
+			// The reviews panel can render lazily or only partially, so a single
+			// click+scroll may see an empty list ("review count stuck at 0") or
+			// just a handful for a place with thousands. Retry the whole fetch a
+			// few times — reloading the page between attempts — and keep the
+			// deepest result, so transient empty/shallow renders self-heal within
+			// the run instead of leaving reviews missing or undercounted.
+			const (
+				reviewFetchAttempts = 3
+				healthyReviewDepth  = 40 // a partial render yields far fewer than this
+			)
+
+			var (
+				bestCount = -1
+				bestRPC   FetchReviewsResponse
+				bestDOM   []DOMReview
+				lastErr   error
+			)
 
 			for attempt := 1; attempt <= reviewFetchAttempts; attempt++ {
 				// On retries, reload the place page so the reviews panel
@@ -339,25 +350,42 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 
 				// Use the new fallback mechanism that tries RPC first, then DOM
 				rpcData, domReviews, err := FetchReviewsWithFallback(ctx, params)
+				lastErr = err
 
-				got := len(rpcData.pages) > 0 || len(domReviews) > 0
-
-				switch {
-				case len(rpcData.pages) > 0:
-					resp.Meta["reviews_raw"] = rpcData
-				case len(domReviews) > 0:
-					resp.Meta["dom_reviews"] = domReviews
-				case err != nil && attempt == reviewFetchAttempts:
-					fmt.Printf("Warning: review extraction failed after %d attempts: %v\n", attempt, err)
+				collected := len(domReviews)
+				for _, p := range rpcData.pages {
+					collected += len(extractReviews(p))
 				}
 
-				if got {
+				// Keep the deepest result across attempts so a later, shallower
+				// retry can never overwrite a better earlier one.
+				if collected > bestCount {
+					bestCount = collected
+					bestRPC = rpcData
+					bestDOM = domReviews
+				}
+
+				// Enough when we pulled a healthy share of the advertised count.
+				// Cap the expectation at healthyReviewDepth so big-review places
+				// aren't retried forever, and use a fraction so a near-complete
+				// pull isn't retried over a few missing reviews. When the count
+				// did not parse (0), accept any reviews.
+				sufficient := collected > 0
+				if reviewCount > 0 {
+					expected := reviewCount
+					if expected > healthyReviewDepth {
+						expected = healthyReviewDepth
+					}
+
+					sufficient = collected*100 >= expected*80
+				}
+
+				if sufficient {
 					break
 				}
 
-				// Nothing yet — wait briefly for a lazy render, then retry.
 				if attempt < reviewFetchAttempts {
-					log.Printf("review extraction empty (attempt %d/%d), retrying", attempt, reviewFetchAttempts)
+					log.Printf("review extraction shallow (%d reviews, attempt %d/%d), retrying", collected, attempt, reviewFetchAttempts)
 
 					select {
 					case <-ctx.Done():
@@ -365,6 +393,15 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 					case <-time.After(1500 * time.Millisecond):
 					}
 				}
+			}
+
+			switch {
+			case len(bestRPC.pages) > 0:
+				resp.Meta["reviews_raw"] = bestRPC
+			case len(bestDOM) > 0:
+				resp.Meta["dom_reviews"] = bestDOM
+			case lastErr != nil:
+				fmt.Printf("Warning: review extraction failed: %v\n", lastErr)
 			}
 		}
 	}
