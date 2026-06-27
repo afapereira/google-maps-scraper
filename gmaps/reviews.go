@@ -626,31 +626,21 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, ma
 							}
 						}
 
-						// Rating - try multiple approaches
+						// Rating - the star widget exposes an aria-label like
+						// "5 stars" or "Rated 4 out of 5". Google obfuscates and
+						// changes the class names, so scan every aria-labelled
+						// descendant for that pattern instead of relying on a
+						// fixed selector. Restrict the value to a single 1-5 digit
+						// so review counts / dates can't be mistaken for a rating.
 						let rating = 0;
-						const ratingSelectors = [
-							'.kvMYJc',
-							'.DU9Pgb span[aria-label]',
-							'[role="img"][aria-label*="star"]',
-							'.pjemBf span',
-							'.review-score',
-						];
-						for (const sel of ratingSelectors) {
-							const ratingEl = element.querySelector(sel);
-							if (ratingEl) {
-								const ariaLabel = ratingEl.getAttribute('aria-label') || '';
-								// Match patterns like "5 stars", "Rated 4 out of 5", "4.5 étoiles"
-								const match = ariaLabel.match(/(\d+(?:\.\d+)?)/);
-								if (match) {
-									rating = Math.round(parseFloat(match[1])) || 0;
-									break;
-								}
-								// Also try counting filled stars
-								const filledStars = element.querySelectorAll('.hCCjke.vzX5Ic, [aria-label*="star"][style*="color"]').length;
-								if (filledStars > 0) {
-									rating = filledStars;
-									break;
-								}
+						const labelled = element.querySelectorAll('[aria-label]');
+						for (const el of labelled) {
+							const al = el.getAttribute('aria-label') || '';
+							const m = al.match(/(?:^|\brated\s+)?([1-5](?:[.,]\d)?)\s*(?:out of\s*5|stars?|★)/i) ||
+								al.match(/([1-5](?:[.,]\d)?)\s*out of\s*5/i);
+							if (m) {
+								rating = Math.round(parseFloat(m[1].replace(',', '.'))) || 0;
+								if (rating > 0) break;
 							}
 						}
 
@@ -751,8 +741,17 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, ma
 						review.ProfilePicture = v
 					}
 
-					if v, ok := reviewMap["rating"].(float64); ok {
+					switch v := reviewMap["rating"].(type) {
+					case float64:
 						review.Rating = int(v)
+					case int:
+						review.Rating = v
+					case int64:
+						review.Rating = int(v)
+					case json.Number:
+						if n, err := v.Int64(); err == nil {
+							review.Rating = int(n)
+						}
 					}
 
 					if v, ok := reviewMap["relative_time_description"].(string); ok {
