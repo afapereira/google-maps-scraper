@@ -938,9 +938,11 @@ func ExtractMentionedInReviews(page scrapemate.BrowserPage) []MentionedKeyword {
 	// fixed grace period and shaves ~1 s off the common path.
 	//
 	// Backoff sequence (ms): 250, 400, 600, 800, 1000, then 1000 until deadline.
-	// Bail after 2 consecutive empties (small places have no chips at all).
-	// Stop once the chip list is stable across two scans (Google sometimes
-	// streams chips in over a couple hundred ms).
+	// Bail after 5 consecutive empties (~4 s) so a place really has no chips —
+	// a lower threshold gave up before the panel rendered under concurrency,
+	// where pages load slower. Stop once the chip list is stable across two
+	// scans (Google sometimes streams chips in over a couple hundred ms).
+	const maxEmptyScans = 5
 	deadline := time.Now().Add(10 * time.Second)
 	delays := []time.Duration{
 		250 * time.Millisecond,
@@ -1005,7 +1007,7 @@ func ExtractMentionedInReviews(page scrapemate.BrowserPage) []MentionedKeyword {
 			}
 		} else {
 			emptyHits++
-			if emptyHits >= 2 {
+			if emptyHits >= maxEmptyScans {
 				break
 			}
 		}
