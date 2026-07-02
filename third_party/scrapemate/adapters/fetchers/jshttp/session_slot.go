@@ -195,8 +195,22 @@ func (r *playwrightRuntime) recreatePage() error {
 func (r *playwrightRuntime) recreateContext() error {
 	r.browser.ctx.Close()
 
-	ctx, err := r.browser.browser.NewContext()
+	ua := r.ua
+	if ua == "" {
+		ua = defaultStealthUA
+	}
+
+	// Mirror newBrowser's context: a bare NewContext() here would leak the
+	// headless UA/webdriver tells and let Google degrade review listings on
+	// reused browsers.
+	ctx, err := r.browser.browser.NewContext(playwright.BrowserNewContextOptions{
+		UserAgent: playwright.String(ua),
+	})
 	if err != nil {
+		return err
+	}
+
+	if err := applyStealth(ctx); err != nil {
 		return err
 	}
 

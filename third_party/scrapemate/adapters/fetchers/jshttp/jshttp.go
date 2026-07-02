@@ -265,6 +265,25 @@ func (o *browser) Close() {
 	_ = o.browser.Close()
 }
 
+// defaultStealthUA is a current Chrome UA. Using a real, recent version (and
+// NOT the "HeadlessChrome" token new headless leaks) is what stops Google from
+// serving a stripped page — empty review RPCs and panels capped at ~10 — to
+// obvious automation. See newStealthContext / newBrowser.
+const defaultStealthUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+// stealthInitScript hides the most common automation tells before any page
+// script runs (navigator.webdriver, empty plugins/languages).
+const stealthInitScript = `
+	Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+	Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+	Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+`
+
+// applyStealth installs the init script on a freshly created context.
+func applyStealth(ctx playwright.BrowserContext) error {
+	return ctx.AddInitScript(playwright.Script{Content: playwright.String(stealthInitScript)})
+}
+
 func newBrowser(pw *playwright.Playwright, headless, disableImages bool, proxyPool *ProxyPool, ua string) (*browser, error) {
 	launchArgs := []string{
 		`--start-maximized`,
@@ -294,6 +313,13 @@ func newBrowser(pw *playwright.Playwright, headless, disableImages bool, proxyPo
 		launchArgs = append(launchArgs, `--no-zygote`, `--single-process`)
 	}
 
+	if headless {
+		// New headless renders like real Chrome; old headless is trivially
+		// fingerprinted. Paired with the spoofed UA below this is what keeps
+		// Google from degrading review listings.
+		launchArgs = append(launchArgs, "--headless=new")
+	}
+
 	opts := playwright.BrowserTypeLaunchOptions{
 		Headless: playwright.Bool(headless),
 		Args:     launchArgs,
@@ -302,9 +328,19 @@ func newBrowser(pw *playwright.Playwright, headless, disableImages bool, proxyPo
 		opts.Args = append(opts.Args, `--blink-settings=imagesEnabled=false`)
 	}
 
+	// Prefer the system's real Google Chrome over bundled Chromium — Google
+	// treats stock Chromium as bot-like and caps review data for it. Fall back
+	// to Chromium when Chrome is not installed so the scraper still runs.
+	opts.Channel = playwright.String("chrome")
+
 	br, err := pw.Chromium.Launch(opts)
 	if err != nil {
-		return nil, err
+		opts.Channel = nil
+
+		br, err = pw.Chromium.Launch(opts)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	const defaultWidth, defaultHeight = 1920, 1080
@@ -312,7 +348,7 @@ func newBrowser(pw *playwright.Playwright, headless, disableImages bool, proxyPo
 	bctx, err := br.NewContext(playwright.BrowserNewContextOptions{
 		UserAgent: func() *string {
 			if ua == "" {
-				defaultUA := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+				defaultUA := defaultStealthUA
 
 				return &defaultUA
 			}
@@ -338,6 +374,10 @@ func newBrowser(pw *playwright.Playwright, headless, disableImages bool, proxyPo
 		}(),
 	})
 	if err != nil {
+		return nil, err
+	}
+
+	if err := applyStealth(bctx); err != nil {
 		return nil, err
 	}
 
