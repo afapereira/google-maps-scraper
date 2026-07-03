@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
-	"log"
 	"math"
 	"net/url"
 	"regexp"
@@ -439,12 +438,12 @@ func extractReviews(data []byte) []Review {
 
 	var jd []any
 	if err := json.Unmarshal(data, &jd); err != nil {
-		log.Printf("DEBUG: Error unmarshalling RPC JSON: %v (data len: %d)", err, len(data))
 		return nil
 	}
 
+	// A short array is Google's empty/placeholder review response, not an
+	// error — return no reviews quietly (the DOM path is the fallback).
 	if len(jd) < 3 {
-		log.Printf("DEBUG: RPC response has only %d elements, expected 3+", len(jd))
 		return nil
 	}
 
