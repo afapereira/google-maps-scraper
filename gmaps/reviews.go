@@ -818,8 +818,19 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, ma
 		// Scroll to load more reviews. Class names rotate, so we first try
 		// a known-good review element and walk up to its scrollable ancestor —
 		// this works even when Google ships new class names.
-		_, _ = page.Eval(`() => {
+		//
+		// Jump to the absolute bottom (not an incremental scrollBy, which can
+		// lag behind as the list grows and stall the lazy loader). When the
+		// count is stuck, first jiggle up so re-hitting the bottom re-fires the
+		// intersection observer that requests the next batch.
+		jiggle := stuckCount > 0
+		scrollJS := fmt.Sprintf(`() => {
 			try {
+				const jiggle = %t;
+				const toBottom = (el) => {
+					if (jiggle) { el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight * 2); }
+					el.scrollTop = el.scrollHeight;
+				};
 				const findScrollable = (el) => {
 					for (let n = el; n && n !== document.body; n = n.parentElement) {
 						const s = getComputedStyle(n);
@@ -838,7 +849,7 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, ma
 					if (!anchor) continue;
 					const sc = findScrollable(anchor);
 					if (sc) {
-						sc.scrollBy(0, sc.clientHeight * 0.9);
+						toBottom(sc);
 						return 'anchor-scroll';
 					}
 				}
@@ -854,17 +865,23 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, ma
 				for (const sel of legacy) {
 					const el = document.querySelector(sel);
 					if (el && el.scrollHeight > el.clientHeight) {
-						el.scrollBy(0, 800);
+						toBottom(el);
 						return 'legacy-scroll';
 					}
 				}
 
-				window.scrollBy(0, 800);
+				window.scrollTo(0, document.body.scrollHeight);
 				return 'window-scroll';
 			} catch (e) { return 'err'; }
-		}`)
+		}`, jiggle)
+		_, _ = page.Eval(scrollJS)
 
-		time.Sleep(700 * time.Millisecond)
+		// Give a stalled list a longer beat to stream the next batch in.
+		if jiggle {
+			time.Sleep(1200 * time.Millisecond)
+		} else {
+			time.Sleep(700 * time.Millisecond)
+		}
 	}
 
 	log.Printf("DOM extraction completed: %d reviews found", len(reviews))
