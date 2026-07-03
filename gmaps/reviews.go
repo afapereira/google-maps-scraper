@@ -805,8 +805,11 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, ma
 
 		if currentCount == lastCount {
 			stuckCount++
-			// Bumped from 5 → 10 so slow loads / brief stalls don't bail early.
-			if stuckCount > 10 {
+			// The scroll now jumps to the absolute bottom and jiggles up on a
+			// stall to re-fire the lazy loader (see below); a genuine end-of-list
+			// won't recover past that, so 6 no-change rounds is enough to confirm
+			// we're done. (Was 10 — the jiggle makes the extra patience wasteful.)
+			if stuckCount > 6 {
 				log.Printf("Review count stuck at %d, stopping scroll", currentCount)
 				break
 			}
