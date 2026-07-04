@@ -86,6 +86,38 @@ Override any default (`CONCURRENCY`, `MAX_REVIEWS`, `DEPTH`, `THRESHOLD`,
 `PARISH_LIST`, …) via env — see the header of the script. The phases below
 document what each step does under the hood.
 
+### Chunked run (interruption-safe — recommended on a PC)
+
+For a multi-day run on one machine, process the parishes in chunks so a
+crash/reboot only costs the current chunk (file output isn't resumable). The
+list is pre-split into ~350-parish files under `restaurants/out/chunks/`.
+Regenerate any time with:
+
+```bash
+split -l 350 -d --additional-suffix=.txt \
+  "C:/Users/andre/Downloads/justnomnom/restaurants-by-place.txt" \
+  restaurants/out/chunks/parish-chunk-
+```
+
+`TAG` keeps each chunk's outputs separate (`pt-base-00.json`, `pt-base-01.json`, …):
+
+```bash
+# 1) scrape each chunk (already-scraped chunks are skipped)
+for c in restaurants/out/chunks/parish-chunk-*.txt; do
+  tag="-$(basename "$c" .txt | sed 's/parish-chunk-//')"
+  [ -f "restaurants/out/pt-base${tag}.json" ] && continue
+  TAG="$tag" PARISH_LIST="$c" ./restaurants/run-portugal.sh discover
+done
+
+# 2) then feed every chunk (resumable; dedups across chunks by place_id)
+for c in restaurants/out/chunks/parish-chunk-*.txt; do
+  tag="-$(basename "$c" .txt | sed 's/parish-chunk-//')"
+  TAG="$tag" ./restaurants/run-portugal.sh feed
+done
+```
+
+Each ~350-parish chunk is roughly half a day to a day of scraping.
+
 ### Phase 1 — Base pass (all parishes)
 
 Scrape every parish. Keep `stderr` — the booster generator mines it. Use a high

@@ -44,11 +44,15 @@ INGEST_ENDPOINT="${INGEST_ENDPOINT:-}"
 RESTAURANT_INGEST_SECRET="${RESTAURANT_INGEST_SECRET:-}"
 INGEST_CONCURRENCY="${INGEST_CONCURRENCY:-4}"
 
-BASE_JSON="$OUT_DIR/pt-base.json"
-BASE_LOG="$OUT_DIR/pt-base.log"
-BOOST_QUERIES="$OUT_DIR/booster-queries.txt"
-BOOST_JSON="$OUT_DIR/pt-boost.json"
-BOOST_LOG="$OUT_DIR/pt-boost.log"
+# TAG suffixes all output files so chunked runs don't clobber each other, e.g.
+#   TAG=-00 PARISH_LIST=restaurants/out/chunks/parish-chunk-00.txt ./run-portugal.sh discover
+TAG="${TAG:-}"
+
+BASE_JSON="$OUT_DIR/pt-base${TAG}.json"
+BASE_LOG="$OUT_DIR/pt-base${TAG}.log"
+BOOST_QUERIES="$OUT_DIR/booster-queries${TAG}.txt"
+BOOST_JSON="$OUT_DIR/pt-boost${TAG}.json"
+BOOST_LOG="$OUT_DIR/pt-boost${TAG}.log"
 
 export DISABLE_TELEMETRY=1
 
