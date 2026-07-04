@@ -63,6 +63,29 @@ parish list ──▶ BASE PASS (scrape) ──▶ pt-base.json ──┐
 All commands are run from the repo root (`google-maps-scraper/`). Windows paths
 shown; adjust as needed.
 
+### Quick start (one command)
+
+`run-portugal.sh` chains all four phases. Configure via env, then run:
+
+```bash
+export PROXIES="$PWD/residential.txt"
+export INGEST_ENDPOINT="https://<your-app>/api/restaurants/ingest"
+export RESTAURANT_INGEST_SECRET="<secret>"
+
+./restaurants/run-portugal.sh all          # discover + feed (default)
+# or run phases individually:
+./restaurants/run-portugal.sh discover      # scrape only (base + boosters), no feed
+./restaurants/run-portugal.sh base          # just the base pass
+./restaurants/run-portugal.sh boost-gen boost   # boosters after a base pass
+./restaurants/run-portugal.sh feed          # feed existing outputs to the API
+```
+
+It fails fast if the ingest env is missing before starting a long scrape, skips
+the booster pass when nothing saturated, and the feed step resumes on re-run.
+Override any default (`CONCURRENCY`, `MAX_REVIEWS`, `DEPTH`, `THRESHOLD`,
+`PARISH_LIST`, …) via env — see the header of the script. The phases below
+document what each step does under the hood.
+
 ### Phase 1 — Base pass (all parishes)
 
 Scrape every parish. Keep `stderr` — the booster generator mines it. Use a high
@@ -218,6 +241,38 @@ Portugal (~$150–500 on residential).
   or INE food-service stats.
 - **No method is 100%.** Google exposes no "list all" — this is best-effort by
   design.
+
+---
+
+## Timeline & cost estimates
+
+Order-of-magnitude planning figures for **one machine at `-c 8`** with
+residential proxies and `-max-reviews 20`, assuming ~50,000–75,000 unique
+restaurants. Real numbers swing widely with proxy speed, block rate, and the
+ingest API's throughput.
+
+| Phase | Work | Time (1 machine) |
+|---|---|---|
+| Base pass | ~3,074 searches + ~50–75k place extractions (details + reviews) | **~3–7 days** |
+| Boost-gen | parse the log | seconds |
+| Booster pass | few hundred–1,500 searches + the incremental new places | ~4–12 hours |
+| Feed (ingest) | ~50–75k POSTs @ 7–15s each (AI tagging + review consensus + image re-host) | **~3–6 days** |
+
+Wall-clock end-to-end: **~1–2 weeks on a single machine.** Cut it down by
+running several scraper consumers (Postgres mode) and/or several feeder
+processes in parallel — the scrape and the ingest are both horizontally
+scalable, and the ingest upsert is idempotent.
+
+| Cost item | Estimate | Notes |
+|---|---|---|
+| Residential proxies | **$150–500** | ~60–150 GB @ $2–4/GB (images disabled saves ~70%) |
+| Qwen LLM (ingest) | ~$10–100 | 2 calls/restaurant (tag mapping + review consensus) |
+| Supabase storage | variable | up to 25 re-hosted images per restaurant |
+| Compute | 1 box × 1–2 weeks | local or a small VPS |
+
+The **ingest side is usually the bottleneck**, not the scrape — each POST does
+real AI + image work and is subject to the API rate limit. Plan capacity there
+first (raise the limit, scale feeder concurrency within what the API tolerates).
 
 ---
 
