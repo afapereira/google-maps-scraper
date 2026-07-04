@@ -244,35 +244,55 @@ Portugal (~$150–500 on residential).
 
 ---
 
-## Timeline & cost estimates
+## Timeline & cost estimates (running on your PC)
 
-Order-of-magnitude planning figures for **one machine at `-c 8`** with
-residential proxies and `-max-reviews 20`, assuming ~50,000–75,000 unique
-restaurants. Real numbers swing widely with proxy speed, block rate, and the
-ingest API's throughput.
+Figures for running the whole pipeline on **one Windows PC on home broadband**,
+`-max-reviews 20`, ~50,000–75,000 unique restaurants. Concurrency is capped by
+your hardware — each `-c` worker is a full Chrome instance (~300–500 MB RAM).
 
-| Phase | Work | Time (1 machine) |
+| Phase | Work | Time on one PC |
 |---|---|---|
-| Base pass | ~3,074 searches + ~50–75k place extractions (details + reviews) | **~3–7 days** |
+| Base pass | ~3,074 searches + ~50–75k place extractions (details + reviews) | **~5–10 days** |
 | Boost-gen | parse the log | seconds |
-| Booster pass | few hundred–1,500 searches + the incremental new places | ~4–12 hours |
-| Feed (ingest) | ~50–75k POSTs @ 7–15s each (AI tagging + review consensus + image re-host) | **~3–6 days** |
+| Booster pass | few hundred–1,500 searches + the incremental new places | ~6–18 hours |
+| Feed (ingest) | ~50–75k POSTs @ 7–15s each (AI + images, runs remotely) | **~3–6 days** |
 
-Wall-clock end-to-end: **~1–2 weeks on a single machine.** Cut it down by
-running several scraper consumers (Postgres mode) and/or several feeder
-processes in parallel — the scrape and the ingest are both horizontally
-scalable, and the ingest upsert is idempotent.
+Run the scrape and the feed **sequentially, not at the same time** — they'd
+fight for CPU/RAM. Realistic end-to-end on a single PC left running:
+**~2–3 weeks.** You can't scale across machines here, so this is bounded by the
+one box.
 
-| Cost item | Estimate | Notes |
+| Cost item | On your PC | Notes |
 |---|---|---|
-| Residential proxies | **$150–500** | ~60–150 GB @ $2–4/GB (images disabled saves ~70%) |
-| Qwen LLM (ingest) | ~$10–100 | 2 calls/restaurant (tag mapping + review consensus) |
-| Supabase storage | variable | up to 25 re-hosted images per restaurant |
-| Compute | 1 box × 1–2 weeks | local or a small VPS |
+| Proxies | **$0–200** | Your home IP is already residential — you may not need paid proxies. Buy a small residential plan (~$50 / 30 GB) only if Google starts blocking. |
+| Qwen LLM (ingest) | ~$10–100 | Remote API — same regardless of where the scraper runs |
+| Supabase storage | variable | up to 25 re-hosted images per restaurant (remote) |
+| Electricity | ~$10–30 | PC running continuously for weeks |
 
-The **ingest side is usually the bottleneck**, not the scrape — each POST does
-real AI + image work and is subject to the API rate limit. Plan capacity there
-first (raise the limit, scale feeder concurrency within what the API tolerates).
+No VPS/proxy bill if your home IP holds up — the main "cost" is your PC being
+tied up for a couple of weeks.
+
+### Running on a single PC — read this first
+
+- **Your home IP is residential** (good — that's what defeats Google's bot
+  checks), but ~50k+ requests from one IP over days can still trip rate limits.
+  Start at **`-c 4`** at a normal pace; if the log shows block/captcha pages,
+  lower `-c` or add a few residential proxies as fallback (`-proxies-file`).
+- **Resumability matters over a 1–2 week run.** A Windows update, sleep, or
+  crash will interrupt it — and file-output passes are **not resumable**, so
+  you'd lose progress. Two safe options:
+  1. **Postgres producer/consumer** ([Resumable runs](#resumable-multi-day-runs-postgres)) — survives restarts.
+  2. **Chunk the list** — split the parish file into smaller batches and run
+     them one at a time, so an interruption only costs the current chunk:
+     ```bash
+     split -l 500 restaurants-by-place.txt restaurants/out/parish-chunk-
+     # then run each chunk as its own base pass (-input parish-chunk-aa, ab, …)
+     ```
+- **Disable sleep/hibernate** for the duration (Settings → Power & sleep → Never).
+- **Pick `-c` by free RAM:** ~2 GB per worker. 16 GB machine → `-c 4–6`; 32 GB
+  → `-c 8–10`. Too high and the Chrome instances thrash and slow everything.
+- The **feed step barely uses your CPU** (the AI runs remotely), but still run
+  it *after* the scrape, not during.
 
 ---
 
