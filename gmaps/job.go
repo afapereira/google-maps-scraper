@@ -21,6 +21,7 @@ type GmapJobOptions func(*GmapJob)
 type GmapJob struct {
 	scrapemate.Job
 
+	Query        string // original search text, for per-query saturation logging
 	MaxDepth     int
 	LangCode     string
 	ExtractEmail bool
@@ -43,6 +44,8 @@ func NewGmapJob(
 	opts ...GmapJobOptions,
 ) *GmapJob {
 	var mapURL string
+
+	rawQuery := strings.TrimSpace(query) // keep the un-escaped text for logging
 
 	switch {
 	case isGoogleMapsURL(query):
@@ -74,6 +77,7 @@ func NewGmapJob(
 			MaxRetries: maxRetries,
 			Priority:   prio,
 		},
+		Query:        rawQuery,
 		MaxDepth:     maxDepth,
 		LangCode:     langCode,
 		ExtractEmail: extractEmail,
@@ -212,7 +216,10 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 		j.ExitMonitor.IncrSeedCompleted(1)
 	}
 
-	log.Info(fmt.Sprintf("%d places found", len(next)))
+	// Include the query verbatim so a base pass can be mined for saturation:
+	// a count at/near the ~120 result cap means the query undercounted and
+	// needs category-booster passes. Parse with: `(\d+) places found for query "(.+)"`.
+	log.Info(fmt.Sprintf("%d places found for query %q", len(next), j.Query))
 
 	return nil, next, nil
 }
