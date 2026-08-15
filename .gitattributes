@@ -1,0 +1,4 @@
+# core.autocrlf=true would hand CRLF shell scripts to Git Bash on checkout, and
+# bash then fails on the carriage returns ($'\r': command not found) — which
+# would break the watchdog on a freshly cloned box. Pin shell scripts to LF.
+*.sh text eol=lf
