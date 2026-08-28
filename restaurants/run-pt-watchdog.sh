@@ -44,6 +44,13 @@ COOLDOWN=60          # pause after a force-kill so RAM/Chrome recover before ret
 EMAIL_FLAG=""
 [ "${WANT_EMAIL:-0}" = "1" ] && EMAIL_FLAG="-email"
 
+# Which chunk set to run. Default = the full 308-chunk country sweep. Set
+# CHUNK_GLOB to a different set (e.g. out/chunks-aml/parish-chunk-A*.txt) to run
+# a priority region first; .done sentinels are keyed off each file's basename, so
+# the two sets have separate namespaces and neither disturbs the other's resume.
+CHUNK_GLOB="${CHUNK_GLOB:-$OUT/chunks/parish-chunk-*.txt}"
+CHUNK_SET="${CHUNK_SET:-country}"
+
 BLOCK_THRESHOLD=${BLOCK_THRESHOLD:-20}
 BLOCK_PATTERN='google block page detected|unusual traffic|automated queries|/sorry/'
 
@@ -106,9 +113,10 @@ guarded_scrape() { # $1=input $2=results $3=log
 }
 
 cleanup_profiles   # start from a clean slate (purge any leftover temp profiles)
-say "WATCHDOG RUN START ($(ls "$OUT"/chunks/parish-chunk-*.txt | wc -l) chunks, c=$CONC depth=$DEPTH max-reviews=$MAX_REVIEWS email=${WANT_EMAIL:-0} stall_limit=${STALL_LIMIT}s keep-best cooldown=${COOLDOWN}s block_threshold=$BLOCK_THRESHOLD)"
+say "WATCHDOG RUN START ($(ls $CHUNK_GLOB 2>/dev/null | wc -l) chunks [$CHUNK_SET], c=$CONC depth=$DEPTH max-reviews=$MAX_REVIEWS email=${WANT_EMAIL:-0} stall_limit=${STALL_LIMIT}s keep-best cooldown=${COOLDOWN}s block_threshold=$BLOCK_THRESHOLD)"
 
-for c in "$OUT"/chunks/parish-chunk-*.txt; do
+# shellcheck disable=SC2086 # CHUNK_GLOB must word-split/glob
+for c in $CHUNK_GLOB; do
   tag="-$(basename "$c" .txt | sed 's/parish-chunk-//')"
   base="$OUT/pt-base$tag.json"; blog="$OUT/pt-base$tag.log"
   done_marker="$OUT/pt-base$tag.done"
@@ -168,7 +176,13 @@ for c in "$OUT"/chunks/parish-chunk-*.txt; do
   fi
 
   # Boosters from whatever base log we ended with.
-  node "$GEN" "$blog" --threshold 100 --out "$bq" >> "$MASTER" 2>&1 || true
+  # BOOST_CATS trims the booster category list. Measured on the Lisbon chunks
+  # A00+A01: the 4 dropped categories averaged 6-10 places/query vs 20-59 for the
+  # rest, and overlap heavily with places the other categories already find.
+  # shellcheck disable=SC2086 # CATS_ARG is intentionally word-split (empty = omit)
+  CATS_ARG=""
+  [ -n "${BOOST_CATS:-}" ] && CATS_ARG="--cats $BOOST_CATS"
+  node "$GEN" "$blog" --threshold 100 $CATS_ARG --out "$bq" >> "$MASTER" 2>&1 || true
   if [ -s "$bq" ]; then
     say "CHUNK$tag boost start ($(wc -l < "$bq" | tr -d ' ') queries)"
     guarded_scrape "$bq" "$boost" "$bl"; brc=$?

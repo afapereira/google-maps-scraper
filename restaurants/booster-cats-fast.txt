@@ -1,0 +1,20 @@
+comida
+take away
+brunch
+pastelaria
+café
+snack-bar
+petiscos
+restaurante chinês
+restaurante indiano
+restaurante italiano
+restaurante japonês
+pizzaria
+padaria
+kebab
+hamburgueria
+cervejaria
+sushi
+tasca
+gelataria
+marisqueira
